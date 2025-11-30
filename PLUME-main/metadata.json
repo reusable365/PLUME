@@ -1,0 +1,7 @@
+{
+  "name": "PLUME MVP V3 - Assistant Biographe",
+  "description": "Un assistant d'écriture intelligent basé sur la maïeutique pour transformer vos souvenirs en récit structuré.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

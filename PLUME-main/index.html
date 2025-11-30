@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PLUME - L'Atelier d'Écriture</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap"
+    rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            serif: ['Lora', 'serif'],
+          },
+          colors: {
+            ink: {
+              50: 'var(--ink-50)',
+              100: 'var(--ink-100)',
+              200: 'var(--ink-200)',
+              300: 'var(--ink-300)',
+              400: 'var(--ink-400)',
+              500: 'var(--ink-500)',
+              600: 'var(--ink-600)',
+              700: 'var(--ink-700)',
+              800: 'var(--ink-800)',
+              900: 'var(--ink-900)',
+            },
+            paper: 'var(--paper-color)',
+            accent: {
+              DEFAULT: '#b45309',
+              light: '#d97706',
+              dark: '#78350f',
+            },
+            surface: 'var(--surface-color)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      /* Default (Aube) */
+      --bg-color: #fdfbf7;
+      --paper-color: #fffbf2;
+      --surface-color: #ffffff;
+      --ink-50: #fafaf9;
+      --ink-100: #f5f5f4;
+      --ink-200: #e7e5e4;
+      --ink-300: #d6d3d1;
+      --ink-400: #a8a29e;
+      --ink-500: #78716c;
+      --ink-600: #57534e;
+      --ink-700: #44403c;
+      --ink-800: #292524;
+      --ink-900: #1c1917;
+    }
+
+    body.theme-crepuscule {
+      --bg-color: #f5e6d3;
+      --paper-color: #f0e1c8;
+      --surface-color: #eaddc5;
+      --ink-50: #fdf6e9;
+      --ink-100: #f7ebd9;
+      --ink-200: #ebdcc5;
+      --ink-300: #dcc8ad;
+      --ink-400: #bfa588;
+      --ink-500: #9d8368;
+      --ink-600: #7d6650;
+      --ink-700: #5e4b3a;
+      --ink-800: #423428;
+      --ink-900: #2b2119;
+    }
+
+    body.theme-nuit {
+      --bg-color: #0f172a;
+      --paper-color: #1e293b;
+      --surface-color: #334155;
+      --ink-50: #1e293b;
+      --ink-100: #334155;
+      --ink-200: #475569;
+      --ink-300: #64748b;
+      --ink-400: #94a3b8;
+      --ink-500: #cbd5e1;
+      --ink-600: #e2e8f0;
+      --ink-700: #f1f5f9;
+      --ink-800: #f8fafc;
+      --ink-900: #ffffff;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--ink-900);
+      transition: background-color 0.5s ease, color 0.5s ease;
+    }
+
+    /* Custom scrollbar for webkit */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd2d9;
+      border-radius: 3px;
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.5s ease-out forwards;
+    }
+
+    @keyframes shake {
+
+      0%,
+      100% {
+        transform: translateX(0);
+      }
+
+      25% {
+        transform: translateX(-5px);
+      }
+
+      75% {
+        transform: translateX(5px);
+      }
+    }
+
+    .animate-shake {
+      animation: shake 0.3s ease-in-out;
+    }
+
+    @keyframes featherFloat {
+
+      0%,
+      100% {
+        transform: translateY(0px) rotate(-5deg);
+      }
+
+      50% {
+        transform: translateY(-10px) rotate(5deg);
+      }
+    }
+
+    .animate-feather-float {
+      animation: featherFloat 2s ease-in-out infinite;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.84.0"
+  }
+}
+</script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="./index.tsx"></script>
+</body>
+
+</html>

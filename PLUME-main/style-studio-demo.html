@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PLUME - Studio de Style Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #d97706, #ea580c);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.25rem;
+            color: #78350f;
+        }
+
+        .demo-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, #fef3c7, #fed7aa);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 2px solid #fbbf24;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            color: #78350f;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .feature-card p {
+            color: #92400e;
+            line-height: 1.6;
+        }
+
+        .tone-showcase {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .tone-pill {
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            text-align: center;
+            font-weight: 600;
+            color: white;
+            transition: transform 0.2s;
+        }
+
+        .tone-pill:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .tone-authentique {
+            background: linear-gradient(135deg, #f59e0b, #ea580c);
+        }
+
+        .tone-humour {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+        }
+
+        .tone-poetique {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+        }
+
+        .tone-direct {
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        }
+
+        .tone-nostalgique {
+            background: linear-gradient(135deg, #fb7185, #ec4899);
+        }
+
+        .tone-lyrique {
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+        }
+
+        .tone-contemplatif {
+            background: linear-gradient(135deg, #14b8a6, #10b981);
+        }
+
+        .tone-epique {
+            background: linear-gradient(135deg, #ef4444, #f97316);
+        }
+
+        .tone-intimiste {
+            background: linear-gradient(135deg, #64748b, #6b7280);
+        }
+
+        .intensity-demo {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: #fffbeb;
+            border-radius: 1rem;
+            border-left: 4px solid #d97706;
+        }
+
+        .intensity-demo h4 {
+            color: #78350f;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .intensity-example {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+        }
+
+        .intensity-label {
+            font-weight: 700;
+            color: #d97706;
+            margin-bottom: 0.5rem;
+        }
+
+        .intensity-text {
+            color: #1f2937;
+            font-style: italic;
+            line-height: 1.6;
+        }
+
+        .author-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .author-card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            text-align: center;
+            border: 2px solid #e5e7eb;
+            transition: all 0.3s;
+        }
+
+        .author-card:hover {
+            border-color: #d97706;
+            box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);
+        }
+
+        .author-name {
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+
+        .author-style {
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+
+        .cta-section {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, #d97706, #ea580c);
+            border-radius: 1.5rem;
+            color: white;
+        }
+
+        .cta-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: white;
+            color: #d97706;
+            font-weight: 700;
+            border-radius: 0.75rem;
+            text-decoration: none;
+            transition: transform 0.2s;
+        }
+
+        .cta-button:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Studio de Style PLUME</h1>
+            <p>Personnalisez votre voix narrative avec précision</p>
+        </div>
+
+        <!-- Features Overview -->
+        <div class="demo-card">
+            <h2 style="color: #78350f; font-size: 1.75rem; margin-bottom: 1.5rem;">✨ Fonctionnalités Premium</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3>🎭 9 Tons d'Écriture</h3>
+                    <p>Du factuel au poétique, du nostalgique à l'épique. Choisissez le ton qui correspond à votre
+                        souvenir.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>🎚️ Curseur d'Intensité</h3>
+                    <p>Ajustez la puissance de votre style de 0 à 100% pour une personnalisation ultra-précise.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>📚 Inspirations d'Auteurs</h3>
+                    <p>Écrivez comme Proust, Duras, Camus ou Colette. Adoptez le style des maîtres.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tone Showcase -->
+        <div class="demo-card">
+            <h2 style="color: #78350f; font-size: 1.75rem; margin-bottom: 1.5rem;">🎨 Les 9 Tons Disponibles</h2>
+            <div class="tone-showcase">
+                <div class="tone-pill tone-authentique">📖 Authentique</div>
+                <div class="tone-pill tone-humour">✨ Humour</div>
+                <div class="tone-pill tone-poetique">🌸 Poétique</div>
+                <div class="tone-pill tone-direct">⚡ Direct</div>
+                <div class="tone-pill tone-nostalgique">💗 Nostalgique</div>
+                <div class="tone-pill tone-lyrique">🎵 Lyrique</div>
+                <div class="tone-pill tone-contemplatif">👁️ Contemplatif</div>
+                <div class="tone-pill tone-epique">⛰️ Épique</div>
+                <div class="tone-pill tone-intimiste">✍️ Intimiste</div>
+            </div>
+        </div>
+
+        <!-- Intensity Demo -->
+        <div class="demo-card">
+            <h2 style="color: #78350f; font-size: 1.75rem; margin-bottom: 1.5rem;">🎚️ Exemple : Intensité du Style
+                Poétique</h2>
+            <div class="intensity-demo">
+                <div class="intensity-example">
+                    <div class="intensity-label">30% - Subtil</div>
+                    <div class="intensity-text">"Je me souviens de cette journée ensoleillée dans le jardin de mon
+                        enfance."</div>
+                </div>
+                <div class="intensity-example">
+                    <div class="intensity-label">70% - Modéré</div>
+                    <div class="intensity-text">"Je me souviens de cette journée où le soleil dansait sur les pavés du
+                        jardin de mon enfance."</div>
+                </div>
+                <div class="intensity-example">
+                    <div class="intensity-label">100% - Intense</div>
+                    <div class="intensity-text">"Je me souviens de cette journée où le soleil, tel un peintre céleste,
+                        dansait sur les pavés dorés du jardin de mon enfance, tissant des ombres de lumière sur les
+                        souvenirs de mon cœur."</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Author Inspirations -->
+        <div class="demo-card">
+            <h2 style="color: #78350f; font-size: 1.75rem; margin-bottom: 1.5rem;">📚 Inspirations d'Auteurs</h2>
+            <div class="author-grid">
+                <div class="author-card">
+                    <div class="author-name">Marcel Proust</div>
+                    <div class="author-style">Contemplatif • Introspection profonde</div>
+                </div>
+                <div class="author-card">
+                    <div class="author-name">Marguerite Duras</div>
+                    <div class="author-style">Intimiste • Épuré et sensuel</div>
+                </div>
+                <div class="author-card">
+                    <div class="author-name">Albert Camus</div>
+                    <div class="author-style">Direct • Sobre et lucide</div>
+                </div>
+                <div class="author-card">
+                    <div class="author-name">Colette</div>
+                    <div class="author-style">Poétique • Sensoriel</div>
+                </div>
+                <div class="author-card">
+                    <div class="author-name">Annie Ernaux</div>
+                    <div class="author-style">Authentique • Auto-analyse</div>
+                </div>
+                <div class="author-card">
+                    <div class="author-name">Romain Gary</div>
+                    <div class="author-style">Lyrique • Romanesque</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CTA -->
+        <div class="cta-section">
+            <h2>Prêt à personnaliser votre style ?</h2>
+            <p style="margin-bottom: 1.5rem; font-size: 1.125rem;">Découvrez le Studio de Style dans l'Atelier PLUME</p>
+            <a href="#" class="cta-button">Ouvrir l'Atelier →</a>
+        </div>
+    </div>
+</body>
+
+</html>
