@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { IconSearch, IconFilter, IconClock, IconUser, IconTag, IconChevronDown, IconX, IconFeather, IconBook, IconCamera, IconTrash } from './Icons';
+import { IconSearch, IconFilter, IconClock, IconUser, IconTag, IconChevronDown, IconX, IconFeather, IconBook, IconCamera, IconTrash, IconShare2, IconLink, IconMail, IconArrowUp } from './Icons';
 import { supabase } from '../services/supabaseClient';
+import { TagIntelligenceService, TagCluster } from '../services/tagIntelligenceService';
 
 interface BoutiqueSouvenirsProps {
     userId: string;
     onSouvenirSelect?: (messageId: string) => void;
+    onSouvenirShare?: (souvenir: any) => void;
 }
 
 interface Souvenir {
@@ -18,9 +20,10 @@ interface Souvenir {
     tags?: string[];
     isDrafted?: boolean;
     isSynthesized?: boolean;
+    status?: 'draft' | 'published'; // Add status field
 }
 
-const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouvenirSelect }) => {
+const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouvenirSelect, onSouvenirShare }) => {
     const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
     const [filteredSouvenirs, setFilteredSouvenirs] = useState<Souvenir[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -37,14 +40,25 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
     const [selectedCharacter, setSelectedCharacter] = useState<string>('all');
     const [selectedTag, setSelectedTag] = useState<string>('all');
     const [selectedStatus, setSelectedStatus] = useState<string>('all');
+    const [selectedPlace, setSelectedPlace] = useState<string>('all'); // NEW
+    const [youthFilter, setYouthFilter] = useState(false); // NEW
 
     // Available filter options
     const [decades, setDecades] = useState<string[]>([]);
     const [characters, setCharacters] = useState<string[]>([]);
     const [tags, setTags] = useState<string[]>([]);
+    const [tagClusters, setTagClusters] = useState<TagCluster[]>([]);
+    const [places, setPlaces] = useState<string[]>([]); // NEW
 
     // Delete Confirmation State
     const [souvenirToDelete, setSouvenirToDelete] = useState<string | null>(null);
+
+    // Share Modal State
+    const [souvenirToShare, setSouvenirToShare] = useState<Souvenir | null>(null);
+
+    // Drag and Drop State
+    const [draggedSouvenir, setDraggedSouvenir] = useState<string | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
     useEffect(() => {
         loadSouvenirs();
@@ -56,17 +70,17 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         } else {
             applyPhotoFilters();
         }
-    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, souvenirs, photos, viewMode]);
+    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace, youthFilter, souvenirs, photos, viewMode]);
 
     const loadSouvenirs = async () => {
         setIsLoading(true);
         try {
-            // Load chapters (Saved Souvenirs)
+            // Load chapters (Saved Souvenirs) - NOW INCLUDING DRAFTS
             const { data: chapters, error } = await supabase
                 .from('chapters')
                 .select('*')
                 .eq('user_id', userId)
-                .eq('status', 'published')
+                // Removed .eq('status', 'published') to show drafts too
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -87,8 +101,9 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     dates: c.metadata?.dates || [],
                     characters: c.metadata?.characters || [],
                     tags: c.metadata?.tags || [],
-                    isDrafted: true,
-                    isSynthesized: false
+                    isDrafted: c.status === 'published', // true if published (gravé)
+                    isSynthesized: false,
+                    status: c.status // Add status field for badge display
                 }));
 
                 setSouvenirs(processedSouvenirs);
@@ -97,6 +112,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                 if (entities) {
                     const uniqueCharacters = [...new Set(entities.filter(e => e.type === 'person').map(e => e.value))];
                     const uniqueTags = [...new Set(entities.filter(e => e.type === 'theme').map(e => e.value))];
+                    const uniquePlaces = [...new Set(entities.filter(e => e.type === 'place').map(e => e.value))]; // NEW
                     const uniqueDates = entities.filter(e => e.type === 'date').map(e => e.value);
 
                     // Extract decades from dates
@@ -112,7 +128,25 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                         .filter(d => d !== null) as string[];
 
                     setCharacters(uniqueCharacters.sort());
-                    setTags(uniqueTags.sort());
+                    setPlaces(uniquePlaces.sort()); // NEW
+
+                    // Organize tags with AI
+                    if (uniqueTags.length > 0) {
+                        console.log('🏷️ Starting tag organization for', uniqueTags.length, 'tags');
+                        // Optimistic update first (flat list)
+                        setTags(uniqueTags.sort());
+
+                        // Then fetch AI organization in background
+                        TagIntelligenceService.organizeTags(uniqueTags)
+                            .then(clusters => {
+                                console.log('✅ Tag clusters ready:', clusters);
+                                setTagClusters(clusters);
+                            })
+                            .catch(err => {
+                                console.warn('⚠️ Tag organization failed, using flat list:', err);
+                            });
+                    }
+
                     setDecades([...new Set(extractedDecades)].sort());
                 }
             }
@@ -154,6 +188,66 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         }
     };
 
+    // Drag handlers for reordering souvenirs
+    const handleDragStart = (e: React.DragEvent<HTMLDivElement>, souvenirId: string) => {
+        setDraggedSouvenir(souvenirId);
+        e.dataTransfer.effectAllowed = 'move';
+        // Visual cue
+        if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.opacity = '0.5';
+        }
+    };
+
+    const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+        setDraggedSouvenir(null);
+        setDragOverIndex(null);
+        if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.opacity = '1';
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverIndex(index);
+    };
+
+    const handleDragLeave = () => {
+        setDragOverIndex(null);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+        e.preventDefault();
+        if (!draggedSouvenir) return;
+        const sourceIndex = filteredSouvenirs.findIndex(s => s.id === draggedSouvenir);
+        if (sourceIndex === -1 || sourceIndex === targetIndex) return;
+        const newSouvenirs = [...filteredSouvenirs];
+        const [moved] = newSouvenirs.splice(sourceIndex, 1);
+        newSouvenirs.splice(targetIndex, 0, moved);
+        setFilteredSouvenirs(newSouvenirs);
+        setDraggedSouvenir(null);
+        setDragOverIndex(null);
+        // TODO: persist order to DB when schema supports it
+    };
+
+    const handleMoveSouvenir = (souvenirId: string, direction: 'up' | 'down') => {
+        const index = filteredSouvenirs.findIndex(s => s.id === souvenirId);
+        if (index === -1) return;
+
+        const newIndex = direction === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= filteredSouvenirs.length) return;
+
+        const newSouvenirs = [...filteredSouvenirs];
+        const [moved] = newSouvenirs.splice(index, 1);
+        newSouvenirs.splice(newIndex, 0, moved);
+        setFilteredSouvenirs(newSouvenirs);
+        // TODO: persist order
+    };
+
+    const handleShareClick = (souvenir: Souvenir) => {
+        setSouvenirToShare(souvenir);
+    };
+
     const applyFilters = () => {
         let filtered = [...souvenirs];
 
@@ -192,8 +286,9 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
 
         // Tag filter
         if (selectedTag !== 'all') {
+            const normalizedSelected = selectedTag.toLowerCase().trim();
             filtered = filtered.filter(s =>
-                s.tags?.includes(selectedTag)
+                s.tags?.some(t => t.toLowerCase().trim().includes(normalizedSelected) || normalizedSelected.includes(t.toLowerCase().trim()))
             );
         }
 
@@ -206,6 +301,37 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
             } else if (selectedStatus === 'raw') {
                 filtered = filtered.filter(s => !s.isDrafted && !s.isSynthesized);
             }
+        }
+
+        // Place filter (NEW)
+        if (selectedPlace !== 'all') {
+            filtered = filtered.filter(s => {
+                // Check if place is mentioned in narrative/content or in metadata
+                const placeInText = s.narrative?.toLowerCase().includes(selectedPlace.toLowerCase()) ||
+                    s.content.toLowerCase().includes(selectedPlace.toLowerCase());
+                return placeInText;
+            });
+        }
+
+        // Youth filter (NEW) - Filter by age 0-18 based on user's birth date
+        if (youthFilter) {
+            filtered = filtered.filter(s => {
+                if (!s.dates || s.dates.length === 0) return false;
+
+                // For now, we'll use a simple heuristic
+                // In a real implementation, we'd fetch user's birth_date from profile
+                // and calculate the youth period (birth_year to birth_year + 18)
+                return s.dates.some(d => {
+                    const match = d.match(/\d{4}/);
+                    if (match) {
+                        const year = parseInt(match[0]);
+                        // Placeholder: assuming youth is before 1990 for demo
+                        // TODO: Calculate based on actual user birth_date
+                        return year >= 1970 && year <= 1988;
+                    }
+                    return false;
+                });
+            });
         }
 
         setFilteredSouvenirs(filtered);
@@ -240,9 +366,11 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         setSelectedCharacter('all');
         setSelectedTag('all');
         setSelectedStatus('all');
+        setSelectedPlace('all'); // NEW
+        setYouthFilter(false); // NEW
     };
 
-    const activeFiltersCount = [selectedDecade, selectedCharacter, selectedTag, selectedStatus].filter(f => f !== 'all').length;
+    const activeFiltersCount = [selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace].filter(f => f !== 'all').length + (youthFilter ? 1 : 0);
 
     if (isLoading) {
         return (
@@ -282,21 +410,138 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                 </div>
             )}
 
+            {/* Share Modal */}
+            {souvenirToShare && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full relative">
+                        <button
+                            onClick={() => setSouvenirToShare(null)}
+                            className="absolute top-4 right-4 text-ink-400 hover:text-ink-600"
+                        >
+                            <IconX className="w-6 h-6" />
+                        </button>
+
+                        <div className="text-center mb-6">
+                            <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <IconShare2 className="w-8 h-8 text-accent" />
+                            </div>
+                            <h3 className="text-2xl font-serif font-bold text-ink-900 mb-2">Partager ce souvenir</h3>
+                            <p className="text-ink-600 text-sm">Invitez vos proches à enrichir "{souvenirToShare.title || 'ce souvenir'}" avec leurs propres mémoires.</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => {
+                                    const url = `${window.location.origin}/?guest=${souvenirToShare.id}`;
+                                    const message = `Je vous invite à partager vos souvenirs de "${souvenirToShare.title}" 📖\n\nContribuez à mon livre de vie :\n${url}`;
+                                    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+                                }}
+                                className="w-full p-4 bg-green-50 hover:bg-green-100 rounded-xl flex items-center gap-4 transition-colors group"
+                            >
+                                <div className="bg-green-500 text-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <IconShare2 className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block font-bold text-ink-900">WhatsApp</span>
+                                    <span className="text-xs text-ink-500">Envoyer le lien d'invitation</span>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    const url = `${window.location.origin}/?guest=${souvenirToShare.id}`;
+                                    const subject = `Invitation à partager un souvenir`;
+                                    const body = `Bonjour,\n\nJ'écris le livre de ma vie avec PLUME et j'aimerais enrichir le chapitre "${souvenirToShare.title}" avec vos propres souvenirs.\n\nVotre contribution est précieuse ! Cliquez sur le lien ci-dessous :\n\n${url}\n\nÀ bientôt !`;
+                                    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                                }}
+                                className="w-full p-4 bg-blue-50 hover:bg-blue-100 rounded-xl flex items-center gap-4 transition-colors group"
+                            >
+                                <div className="bg-blue-500 text-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <IconMail className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block font-bold text-ink-900">Email</span>
+                                    <span className="text-xs text-ink-500">Envoyer une belle invitation</span>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={async () => {
+                                    const url = `${window.location.origin}/?guest=${souvenirToShare.id}`;
+                                    try {
+                                        await navigator.clipboard.writeText(url);
+                                        alert('✅ Lien copié dans le presse-papier !');
+                                    } catch (err) {
+                                        alert('❌ Erreur lors de la copie du lien');
+                                    }
+                                }}
+                                className="w-full p-4 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center gap-4 transition-colors group"
+                            >
+                                <div className="bg-slate-500 text-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <IconLink className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block font-bold text-ink-900">Copier le lien</span>
+                                    <span className="text-xs text-ink-500">Pour partager partout</span>
+                                </div>
+                            </button>
+
+                            <div className="relative py-2">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-ink-200"></div>
+                                </div>
+                                <div className="relative flex justify-center">
+                                    <span className="bg-white px-2 text-xs text-ink-400 uppercase">Prototype</span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    if (onSouvenirShare) onSouvenirShare(souvenirToShare);
+                                    setSouvenirToShare(null);
+                                }}
+                                className="w-full py-3 bg-ink-900 text-white rounded-xl font-bold hover:bg-ink-800 transition-colors shadow-lg flex items-center justify-center gap-2"
+                            >
+                                <IconShare2 className="w-4 h-4" />
+                                Simuler la vue Invité
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="max-w-7xl mx-auto">
-                {/* Header */}
-                <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="bg-gradient-to-br from-accent to-amber-600 p-3 rounded-2xl shadow-lg">
-                            <IconBook className="w-7 h-7 text-white" />
+                {/* Header - Le Sanctuaire */}
+                <div className="mb-8 relative">
+                    {/* Video Banner Placeholder */}
+                    <div className="relative h-48 md:h-64 rounded-3xl overflow-hidden mb-6 shadow-2xl">
+                        <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-indigo-800 to-blue-900 animate-gradient-shift">
+                            {/* Placeholder for video - will be replaced when video path is provided */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="text-center text-white px-4">
+                                    <div className="flex items-center justify-center gap-3 mb-3">
+                                        <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl">
+                                            <IconBook className="w-10 h-10 text-white" />
+                                        </div>
+                                    </div>
+                                    <h1 className="text-4xl md:text-6xl font-serif font-bold mb-3 drop-shadow-lg">
+                                        Le Sanctuaire
+                                    </h1>
+                                    <p className="text-lg md:text-xl font-light text-white/90 drop-shadow-md">
+                                        Où vos souvenirs prennent vie
+                                    </p>
+                                </div>
+                            </div>
+                            {/* Animated overlay */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"></div>
                         </div>
-                        <div>
-                            <h1 className="text-3xl md:text-5xl font-serif font-bold text-ink-900 leading-tight">
-                                Boutique des Souvenirs
-                            </h1>
-                            <p className="text-ink-600 text-base md:text-lg mt-1 font-medium">
-                                Explorez, recherchez et redécouvrez vos mémoires
-                            </p>
-                        </div>
+                    </div>
+
+                    {/* Subtitle */}
+                    <div className="text-center mb-6">
+                        <p className="text-ink-700 text-lg md:text-xl font-medium">
+                            Explorez, organisez et redécouvrez vos mémoires avec l'intelligence artificielle
+                        </p>
                     </div>
 
                     {/* View Mode Toggle */}
@@ -355,7 +600,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     {/* Filters Panel */}
                     {showFilters && (
                         <div className="mt-6 pt-6 border-t border-ink-200 animate-fade-in">
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                                 {/* Decade Filter */}
                                 <div>
                                     <label className="block text-sm font-bold text-ink-700 mb-2">
@@ -392,21 +637,62 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                                     </select>
                                 </div>
 
+                                {/* Place Filter (NEW) */}
+                                <div>
+                                    <label className="block text-sm font-bold text-ink-700 mb-2">
+                                        <span className="inline-block mr-1">📍</span>
+                                        Lieu
+                                    </label>
+                                    <select
+                                        value={selectedPlace}
+                                        onChange={(e) => setSelectedPlace(e.target.value)}
+                                        className="w-full p-3 bg-white border border-ink-200 rounded-xl text-ink-800 focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none"
+                                    >
+                                        <option value="all">Tous les lieux</option>
+                                        {places.map(p => (
+                                            <option key={p} value={p}>{p}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 {/* Tag Filter */}
                                 <div>
                                     <label className="block text-sm font-bold text-ink-700 mb-2">
                                         <IconTag className="inline w-4 h-4 mr-1" />
-                                        Thème
+                                        Thème {tagClusters.length > 0 && <span className="text-xs text-green-600">(✨ IA organisée)</span>}
                                     </label>
                                     <select
                                         value={selectedTag}
                                         onChange={(e) => setSelectedTag(e.target.value)}
                                         className="w-full p-3 bg-white border border-ink-200 rounded-xl text-ink-800 focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none"
+                                        style={{
+                                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                                        }}
                                     >
-                                        <option value="all">Tous les thèmes</option>
-                                        {tags.map(t => (
-                                            <option key={t} value={t}>{t}</option>
-                                        ))}
+                                        <option value="all">📚 Tous les thèmes</option>
+                                        {tagClusters.length > 0 ? (
+                                            tagClusters.map((cluster, idx) => {
+                                                const colors = ['🔵', '🟢', '🟡', '🟣', '🟠', '🔴', '⚫', '⚪'];
+                                                const emoji = colors[idx % colors.length];
+                                                return (
+                                                    <optgroup
+                                                        key={cluster.category}
+                                                        label={`${emoji} ${cluster.category.toUpperCase()}`}
+                                                        style={{ fontWeight: 'bold', color: '#4F46E5' }}
+                                                    >
+                                                        {cluster.tags.map(t => (
+                                                            <option key={t} value={t} style={{ paddingLeft: '1.5rem' }}>
+                                                                {t}
+                                                            </option>
+                                                        ))}
+                                                    </optgroup>
+                                                );
+                                            })
+                                        ) : (
+                                            tags.map(t => (
+                                                <option key={t} value={t}>{t}</option>
+                                            ))
+                                        )}
                                     </select>
                                 </div>
 
@@ -427,6 +713,25 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                                         <option value="synthesized">Synthétisé</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            {/* Youth Filter Toggle (NEW) */}
+                            <div className="mt-4 flex items-center gap-3 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
+                                <label className="flex items-center cursor-pointer flex-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={youthFilter}
+                                        onChange={(e) => setYouthFilter(e.target.checked)}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="relative w-11 h-6 bg-ink-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                                    <span className="ml-3 text-sm font-bold text-ink-900">
+                                        🌱 Période "Jeunesse" (0-18 ans)
+                                    </span>
+                                </label>
+                                <span className="text-xs text-purple-700 bg-white/60 px-3 py-1 rounded-full">
+                                    Filtre intelligent
+                                </span>
                             </div>
 
                             {activeFiltersCount > 0 && (
@@ -458,26 +763,53 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                             {filteredSouvenirs.map((souvenir) => (
                                 <div
                                     key={souvenir.id}
-                                    className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-ink-100 hover:shadow-xl hover:scale-[1.02] transition-all cursor-pointer group relative"
+                                    className="bg-white/80 backdrop-blur-md rounded-3xl p-6 shadow-xl border border-white/50 hover:shadow-2xl hover:scale-[1.03] hover:border-accent/30 transition-all duration-300 cursor-pointer group relative overflow-hidden"
                                     onClick={() => onSouvenirSelect?.(souvenir.id)}
                                 >
-                                    {/* Delete Button (Visible on Hover) */}
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setSouvenirToDelete(souvenir.id);
-                                        }}
-                                        className="absolute top-4 right-4 p-2 bg-white text-red-400 hover:text-red-600 hover:bg-red-50 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
-                                        title="Supprimer ce souvenir"
-                                    >
-                                        <IconTrash className="w-4 h-4" />
-                                    </button>
+                                    {/* Action Buttons (Visible on Hover) */}
+                                    <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleShareClick(souvenir);
+                                            }}
+                                            className="p-2 bg-white text-accent hover:text-white hover:bg-accent rounded-full shadow-sm transition-all"
+                                            title="Partager ce souvenir"
+                                        >
+                                            <IconShare2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleMoveSouvenir(souvenir.id, 'up');
+                                            }}
+                                            className="p-2 bg-white text-ink-600 hover:text-accent hover:bg-accent/10 rounded-full shadow-sm transition-all"
+                                            title="Déplacer vers le haut"
+                                        >
+                                            <IconArrowUp className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSouvenirToDelete(souvenir.id);
+                                            }}
+                                            className="p-2 bg-white text-red-400 hover:text-red-600 hover:bg-red-50 rounded-full shadow-sm transition-all"
+                                            title="Supprimer ce souvenir"
+                                        >
+                                            <IconTrash className="w-4 h-4" />
+                                        </button>
+                                    </div>
 
                                     {/* Status Badge */}
                                     <div className="flex items-center gap-2 mb-3">
-                                        {souvenir.isDrafted && (
+                                        {souvenir.status === 'draft' && (
+                                            <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
+                                                📝 Brouillon
+                                            </span>
+                                        )}
+                                        {souvenir.status === 'published' && (
                                             <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">
-                                                Gravé
+                                                ✅ Gravé
                                             </span>
                                         )}
                                         {souvenir.isSynthesized && (
@@ -559,64 +891,67 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                             </div>
                         )}
                     </>
-                )}
+                )
+                }
 
                 {/* Photos Grid */}
-                {viewMode === 'photos' && (
-                    <>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                            {filteredPhotos.map((photo) => (
-                                <div
-                                    key={photo.id}
-                                    className="group relative bg-white rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all cursor-pointer"
-                                >
-                                    {/* Photo */}
-                                    <div className="aspect-square overflow-hidden">
-                                        <img
-                                            src={photo.url}
-                                            alt={photo.caption || 'Photo'}
-                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                                        />
-                                    </div>
+                {
+                    viewMode === 'photos' && (
+                        <>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {filteredPhotos.map((photo) => (
+                                    <div
+                                        key={photo.id}
+                                        className="group relative bg-white rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all cursor-pointer"
+                                    >
+                                        {/* Photo */}
+                                        <div className="aspect-square overflow-hidden">
+                                            <img
+                                                src={photo.url}
+                                                alt={photo.caption || 'Photo'}
+                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                            />
+                                        </div>
 
-                                    {/* Overlay with info */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
-                                        {photo.linkedCharacters && photo.linkedCharacters.length > 0 && (
-                                            <div className="flex flex-wrap gap-1 mb-2">
-                                                {photo.linkedCharacters.map((person: string, i: number) => (
-                                                    <span key={i} className="px-2 py-1 bg-white/90 text-accent text-xs font-bold rounded-full">
-                                                        {person}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {photo.caption && (
-                                            <p className="text-white text-sm font-medium line-clamp-2">
-                                                {photo.caption}
-                                            </p>
-                                        )}
+                                        {/* Overlay with info */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                                            {photo.linkedCharacters && photo.linkedCharacters.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mb-2">
+                                                    {photo.linkedCharacters.map((person: string, i: number) => (
+                                                        <span key={i} className="px-2 py-1 bg-white/90 text-accent text-xs font-bold rounded-full">
+                                                            {person}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {photo.caption && (
+                                                <p className="text-white text-sm font-medium line-clamp-2">
+                                                    {photo.caption}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Empty State for Photos */}
-                        {filteredPhotos.length === 0 && (
-                            <div className="text-center py-16">
-                                <IconCamera className="w-16 h-16 text-ink-300 mx-auto mb-4" />
-                                <h3 className="text-xl font-bold text-ink-700 mb-2">Aucune photo trouvée</h3>
-                                <p className="text-ink-500">
-                                    {selectedCharacter !== 'all'
-                                        ? `Aucune photo de ${selectedCharacter} pour le moment`
-                                        : searchQuery || activeFiltersCount > 0
-                                            ? 'Essayez de modifier vos critères de recherche'
-                                            : 'Utilisez le Catalyseur Photo pour ajouter vos premières photos'}
-                                </p>
+                                ))}
                             </div>
-                        )}
-                    </>
-                )}
-            </div>
+
+                            {/* Empty State for Photos */}
+                            {filteredPhotos.length === 0 && (
+                                <div className="text-center py-16">
+                                    <IconCamera className="w-16 h-16 text-ink-300 mx-auto mb-4" />
+                                    <h3 className="text-xl font-bold text-ink-700 mb-2">Aucune photo trouvée</h3>
+                                    <p className="text-ink-500">
+                                        {selectedCharacter !== 'all'
+                                            ? `Aucune photo de ${selectedCharacter} pour le moment`
+                                            : searchQuery || activeFiltersCount > 0
+                                                ? 'Essayez de modifier vos critères de recherche'
+                                                : 'Utilisez le Catalyseur Photo pour ajouter vos premières photos'}
+                                    </p>
+                                </div>
+                            )}
+                        </>
+                    )
+                }
+            </div >
 
             <style>{`
                 @keyframes fadeIn {
@@ -629,8 +964,23 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                         transform: translateY(0);
                     }
                 }
+                @keyframes gradient-shift {
+                    0% {
+                        background-position: 0% 50%;
+                    }
+                    50% {
+                        background-position: 100% 50%;
+                    }
+                    100% {
+                        background-position: 0% 50%;
+                    }
+                }
                 .animate-fade-in {
                     animation: fadeIn 0.3s ease-out;
+                }
+                .animate-gradient-shift {
+                    background-size: 200% 200%;
+                    animation: gradient-shift 8s ease infinite;
                 }
                 .line-clamp-4 {
                     display: -webkit-box;
@@ -639,7 +989,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     overflow: hidden;
                 }
             `}</style>
-        </div>
+        </div >
     );
 };
 

@@ -1,11 +1,51 @@
 import { GoogleGenAI } from "@google/genai";
 import { Photo, PhotoAnalysis } from "../types";
 import { supabase } from "./supabaseClient";
+import { logger } from "../utils/logger";
 
 /**
  * Service d'analyse de photos avec Gemini Vision API
  * Transforme les photos en catalyseurs narratifs intelligents
  */
+
+// ===== PHOTO VALIDATION =====
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+
+/**
+ * Valide un fichier photo avant upload
+ * @returns {valid: boolean, error?: string}
+ */
+export const validatePhotoFile = (file: File): { valid: boolean; error?: string } => {
+    // Vérifier le type MIME
+    if (!ALLOWED_TYPES.includes(file.type)) {
+        return {
+            valid: false,
+            error: `Format non supporté (${file.type}). Utilisez JPG, PNG ou WEBP.`
+        };
+    }
+
+    // Vérifier l'extension du fichier
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (!fileExt || !ALLOWED_EXTENSIONS.includes(fileExt)) {
+        return {
+            valid: false,
+            error: `Extension non supportée (.${fileExt}). Utilisez .jpg, .png ou .webp.`
+        };
+    }
+
+    // Vérifier la taille
+    if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        return {
+            valid: false,
+            error: `Fichier trop volumineux (${sizeMB} MB). Maximum : 5 MB.`
+        };
+    }
+
+    return { valid: true };
+};
 
 /**
  * Analyse une photo avec Gemini Vision pour extraire le contexte narratif
@@ -15,11 +55,11 @@ export const analyzePhotoWithVision = async (
     userContext?: { firstName?: string; birthDate?: string },
     audioFile?: Blob | File
 ): Promise<PhotoAnalysis> => {
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
         throw new Error("API Key is missing from environment variables.");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     try {
         // Préparer l'image pour l'API
@@ -150,7 +190,7 @@ Retourne UNIQUEMENT le JSON, sans texte avant ou après.
         };
 
     } catch (error) {
-        console.error("Photo Analysis Error:", error);
+        logger.error("Photo Analysis Error:", error);
 
         // Retourner une analyse par défaut en cas d'erreur
         return {
@@ -208,7 +248,13 @@ export const uploadPhotoToSupabase = async (
         const fileExt = file.name.split('.').pop();
         const fileName = `${userId}/${photoId}.${fileExt}`;
 
-        console.log(`Attempting to upload file: ${fileName} to bucket 'photos'`);
+        // Validate file before upload
+        const validation = validatePhotoFile(file);
+        if (!validation.valid) {
+            throw new Error(validation.error);
+        }
+
+        logger.info(`Attempting to upload file: ${fileName} to bucket 'photos'`);
 
         const { data, error } = await supabase.storage
             .from('photos')
@@ -218,7 +264,7 @@ export const uploadPhotoToSupabase = async (
             });
 
         if (error) {
-            console.error("Supabase Storage Upload Error:", error);
+            logger.error("Supabase Storage Upload Error:", error);
             throw error;
         }
 
@@ -227,10 +273,10 @@ export const uploadPhotoToSupabase = async (
             .from('photos')
             .getPublicUrl(fileName);
 
-        console.log("File uploaded, public URL:", publicUrl);
+        logger.info("File uploaded, public URL:", publicUrl);
         return publicUrl;
     } catch (error) {
-        console.error("Upload Error Details:", error);
+        logger.error("Upload Error Details:", error);
         throw error;
     }
 };
@@ -243,7 +289,7 @@ export const savePhotoMetadata = async (
     photo: Photo
 ): Promise<void> => {
     try {
-        console.log(`Fetching profile for user: ${userId}`);
+        logger.info(`Fetching profile for user: ${userId}`);
         // Récupérer les photos actuelles
         const { data: profile, error: fetchError } = await supabase
             .from('profiles')
@@ -252,7 +298,7 @@ export const savePhotoMetadata = async (
             .single();
 
         if (fetchError) {
-            console.error("Error fetching profile photos:", fetchError);
+            logger.error("Error fetching profile photos:", fetchError);
             throw fetchError;
         }
 
@@ -266,7 +312,7 @@ export const savePhotoMetadata = async (
             currentPhotos.push(photo);
         }
 
-        console.log(`Updating profile with ${currentPhotos.length} photos`);
+        logger.info(`Updating profile with ${currentPhotos.length} photos`);
 
         // Sauvegarder
         const { error: updateError } = await supabase
@@ -278,12 +324,12 @@ export const savePhotoMetadata = async (
             .eq('id', userId);
 
         if (updateError) {
-            console.error("Error updating profile photos:", updateError);
+            logger.error("Error updating profile photos:", updateError);
             throw updateError;
         }
 
     } catch (error) {
-        console.error("Save Photo Metadata Error Details:", error);
+        logger.error("Save Photo Metadata Error Details:", error);
         throw error;
     }
 };
@@ -313,7 +359,7 @@ export const getAvailableCharacters = async (userId: string): Promise<string[]> 
             .eq('type', 'person');
 
         if (error) {
-            console.error("Error fetching characters:", error);
+            logger.error("Error fetching characters:", error);
             return [];
         }
 
@@ -322,7 +368,7 @@ export const getAvailableCharacters = async (userId: string): Promise<string[]> 
         return characters.sort();
 
     } catch (error) {
-        console.error("Get Available Characters Error:", error);
+        logger.error("Get Available Characters Error:", error);
         return [];
     }
 };
@@ -358,12 +404,12 @@ export const saveCharactersToEntities = async (
                 .insert(entities);
 
             if (error) {
-                console.error("Error saving characters to entities:", error);
+                logger.error("Error saving characters to entities:", error);
                 throw error;
             }
         }
     } catch (error) {
-        console.error("Save Characters to Entities Error:", error);
+        logger.error("Save Characters to Entities Error:", error);
         throw error;
     }
 };
@@ -407,7 +453,7 @@ export const analyzeExistingPhoto = async (
         return enrichedPhoto;
 
     } catch (error) {
-        console.error("Analyze Existing Photo Error:", error);
+        logger.error("Analyze Existing Photo Error:", error);
         throw error;
     }
 };

@@ -25,6 +25,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
     const [message, setMessage] = useState<string | null>(null);
     const [debugUrl, setDebugUrl] = useState<string>('');
 
+    // Password visibility toggle
+    const [showPassword, setShowPassword] = useState(false);
+
     // API Key Config
     const [apiKeyInput, setApiKeyInput] = useState('');
 
@@ -140,12 +143,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
                     <div className="space-y-8 animate-fade-in text-center">
                         <div className="space-y-2">
                             <h3 className="font-serif text-3xl font-bold text-ink-900">
-                                {isSignUp ? "Commencer l'aventure" : "Bon retour parmi nous"}
+                                {isSignUp ? "Commencer l'aventure" : "Connexion"}
                             </h3>
                             <p className="text-ink-500 font-serif italic text-lg">
                                 {isSignUp
                                     ? "Je suis PLUME. Ensemble, nous allons graver l'éternité."
-                                    : "Votre plume n'attend que vous pour continuer le récit."}
+                                    : "Bienvenue. Entrez vos identifiants pour accéder à votre livre."}
                             </p>
                         </div>
 
@@ -231,17 +234,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
                 return (
                     <form onSubmit={handleAuth} className="space-y-6 animate-fade-in">
                         <div className="text-center space-y-2">
-                            <h3 className="font-serif text-2xl font-bold text-ink-900">Le Sceau</h3>
-                            <p className="text-ink-500">Un mot de passe pour protéger vos souvenirs.</p>
+                            <h3 className="font-serif text-2xl font-bold text-ink-900">{isSignUp ? "Votre Mot de Passe" : "Mot de Passe"}</h3>
+                            <p className="text-ink-500">{isSignUp ? "Choisissez un mot de passe sécurisé (min. 6 caractères)" : "Entrez votre mot de passe"}</p>
                         </div>
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
-                            autoFocus
-                            className="w-full text-center text-xl font-sans border-b-2 border-ink-200 focus:border-accent bg-transparent py-2 outline-none placeholder-ink-200 text-ink-800 transition-colors"
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Votre mot de passe"
+                                autoFocus
+                                className="w-full text-center text-xl font-sans border-2 border-ink-200 focus:border-accent bg-white rounded-xl px-4 py-3 outline-none placeholder-ink-300 text-ink-800 transition-colors"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 transition-colors"
+                            >
+                                {showPassword ? "🙈" : "👁️"}
+                            </button>
+                        </div>
                         <button
                             type="submit"
                             disabled={loading}

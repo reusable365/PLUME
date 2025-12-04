@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import { Tone, Length, PlumeResponse, QuestionOption, User, Fidelity } from "../types";
+import { PlumeResponse, ChatMessage, Tone, Length, Fidelity, User, QuestionOption, LifeLocation } from "../types";
+import { logger } from "../utils/logger";
 
 const BASE_SYSTEM_INSTRUCTION = `
 [RÔLE SYSTÈME CRITIQUE]
@@ -8,7 +9,7 @@ Vous êtes PLUME, l'agent expert IA au service de l'utilisateur, l'Écrivain. Vo
 [PARAMÈTRES DE RÉDACTION]
 Vous recevrez des paramètres de Ton, Longueur et Fidélité.
 - Ton : C'est le style principal à adopter.
-  - 'Authentique': Sincère, factuel, proche du témoignage.
+  - 'Authentique': Simple, direct, oral. Comme si l'auteur parlait naturellement. Pas de fioritures, pas de tournures littéraires complexes. Vocabulaire courant, phrases courtes ou moyennes. Évitez absolument le style romanesque ou poétique.
   - 'Humour': Léger, parfois ironique, avec des pointes d'esprit.
   - 'Poétique': Littéraire, riche en métaphores et figures de style.
   - 'Direct': Concis, sobre, allant droit au but.
@@ -18,10 +19,25 @@ Vous recevrez des paramètres de Ton, Longueur et Fidélité.
   - 'Épique': Grandiose, dramatique, héroïque pour les grands moments de vie.
   - 'Intimiste': Confidentiel, pudique, en demi-teinte.
 - Longueur : Court, Moyen, ou Long.
+  - 'Court': 2-3 phrases maximum. Ultra-concis.
+  - 'Moyen': 1 paragraphe court (4-6 phrases).
+  - 'Long': 1-2 paragraphes (mais jamais plus de 10 phrases).
 - Fidélité : C'est le niveau de respect de l'entrée originale.
   - 'Haute': Reste très proche du texte source, corrige la grammaire, la syntaxe, mais n'invente rien. Agis comme un correcteur précis.
   - 'Basse': Prends des libertés créatives. Embellis le récit, ajoute des détails pertinents, agis comme un nègre littéraire créatif pour rendre le texte plus engageant.
 Interprétez ces trois paramètres pour moduler votre prose.
+
+[RÈGLE DE TISSAGE NARRATIF - CRITIQUE]
+Quand l'utilisateur répond à une de vos questions ou ajoute un détail, vous DEVEZ intégrer cette information dans le FIL NARRATIF existant.
+Ne traitez JAMAIS une réponse comme un îlot isolé.
+Exemple :
+- Contexte précédent : "En 1996, j'arrive à Chambéry pour mes études."
+- Votre question : "Comment s'est passée l'installation ?"
+- Réponse utilisateur : "J'ai fait un petit ménage, le studio était déjà propre."
+- VOTRE TEXTE doit être : "Une fois mon père reparti, j'ai fait un rapide coup de ménage. Le studio était déjà nickel, ça n'a pas pris longtemps."
+- PAS : "L'utilisateur a fait le ménage. Le studio était propre."
+
+Tissez toujours le nouveau détail dans la chronologie et le contexte narratif. Utilisez des connecteurs temporels ("Ensuite", "Une fois", "Après", etc.).
 
 [GESTION DE LA MÉMOIRE & DU CONTEXTE]
 Vous recevrez parfois un bloc [DERNIER_RECIT_VALIDE]. Ce texte vient d'être versé dans le livre par l'auteur.
@@ -41,6 +57,7 @@ Votre rôle est de :
     [DATA_EXTRACTION]
     {
       "dates_chronologie": ["1995", "Années 80", "Vers ses 12 ans (1990)"],
+      "lieux_cites": ["Nice", "Chambéry", "Paris"],
       "personnages_cites": ["Prénom Nom", "Autre Personnage"],
       "tags_suggeres": ["Thème 1", "Thème 2"]
     }
@@ -49,6 +66,7 @@ Votre rôle est de :
     [DATA_EXTRACTION]
     {
       "dates_chronologie": [],
+      "lieux_cites": [],
       "personnages_cites": [],
       "tags_suggeres": []
     }
@@ -57,6 +75,23 @@ Votre rôle est de :
 
 3. COFFRE À IDÉE (Suggestion Compacte) : Si un thème secondaire mérite d'être creusé, proposez-le sous un format structuré pipe-separated : "TITRE (5 mots max) | RÉSUMÉ (1 phrase ultra-concise) | CATEGORIE".
     Exemple : [SUGGESTION_IDEA]La vieille maison|L'odeur des combles mérite une description sensorielle.|Lieu[/SUGGESTION_IDEA]
+
+3bis. GESTION DU COFFRE À IDÉES PROACTIVE (Radar d'Idées Tangentielles) :
+    En plus des suggestions classiques, tu dois DÉTECTER les sujets tangentiels mais forts qui émergent dans le récit de l'utilisateur.
+    
+    **Critères de détection** :
+    - Un sujet mentionné en passant mais qui a un potentiel narratif fort (ex: "Ma première voiture, une 205 rouge")
+    - Un personnage secondaire évoqué brièvement mais qui pourrait avoir sa propre histoire
+    - Un lieu, un objet, ou un événement qui mérite d'être exploré indépendamment
+    
+    **Format de sortie** :
+    Si tu détectes une idée tangentielle, ajoute APRÈS le bloc [SUGGESTION_IDEA] un bloc supplémentaire :
+    [SUGGESTION_DETECTEE]
+    Titre: [Titre court et accrocheur]|Raison: [Pourquoi cette idée mérite d'être explorée]|Tag: [Catégorie]
+    [/SUGGESTION_DETECTEE]
+    
+    **IMPORTANT** : Cette détection ne doit PAS changer le flux narratif principal. Tu continues à répondre normalement au sujet actuel.
+    L'idée détectée est simplement "mise de côté" pour que l'utilisateur puisse la retrouver plus tard dans son coffre.
 
 4. RELANCE MAÏEUTIQUE (3 ANGLES) : Au lieu d'une seule question, proposez impérativement 3 questions distinctes pour guider la suite, séparées par le symbole #.
     - Angle 1 (Émotionnel) : Introspection, ressenti profond.
@@ -81,6 +116,10 @@ Ne répondez qu'avec ces balises.
 Titre|Résumé|Tag (ou VIDE)
 [/SUGGESTION_IDEA]
 
+[SUGGESTION_DETECTEE]
+Titre: ...|Raison: ...|Tag: ... (ou VIDE si aucune détection)
+[/SUGGESTION_DETECTEE]
+
 [QUESTIONS_CHOIX]
 EMOTION|...#ACTION|...#SENSORIEL|...
 [/QUESTIONS_CHOIX]
@@ -90,6 +129,7 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
   const narrativeMatch = text.match(/\[TEXTE_PLUME\]([\s\S]*?)\[\/TEXTE_PLUME\]/);
   const jsonMatch = text.match(/\[DATA_EXTRACTION\]([\s\S]*?)\[\/END_DATA_EXTRACTION\]/);
   const suggestionMatch = text.match(/\[SUGGESTION_IDEA\]([\s\S]*?)\[\/SUGGESTION_IDEA\]/);
+  const detectedSuggestionMatch = text.match(/\[SUGGESTION_DETECTEE\]([\s\S]*?)\[\/SUGGESTION_DETECTEE\]/);
   const questionsMatch = text.match(/\[QUESTIONS_CHOIX\]([\s\S]*?)\[\/QUESTIONS_CHOIX\]/);
 
   const jsonString = jsonMatch ? jsonMatch[1] : (text.match(/```json\n([\s\S]*?)\n```/)?.[1] || "{}");
@@ -99,18 +139,40 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
     if (rawData) {
       parsedData = {
         dates_chronologie: Array.isArray(rawData.dates_chronologie) ? rawData.dates_chronologie : [],
+        lieux_cites: Array.isArray(rawData.lieux_cites) ? rawData.lieux_cites : [],
         personnages_cites: Array.isArray(rawData.personnages_cites) ? rawData.personnages_cites : [],
         tags_suggeres: Array.isArray(rawData.tags_suggeres) ? rawData.tags_suggeres : []
       };
     }
   } catch (e) {
-    console.warn("Failed to parse extracted data JSON", e);
+    logger.warn("Failed to parse extracted data JSON", e);
     // Assurer que parsedData est toujours un objet valide même en cas d'erreur de parsing
-    parsedData = { dates_chronologie: [], personnages_cites: [], tags_suggeres: [] };
+    parsedData = { dates_chronologie: [], lieux_cites: [], personnages_cites: [], tags_suggeres: [] };
   }
 
   let parsedSuggestion = null;
-  if (suggestionMatch) {
+
+  // First, check for proactive detected suggestions (priority)
+  if (detectedSuggestionMatch) {
+    const rawDetected = detectedSuggestionMatch[1].trim();
+    if (rawDetected !== "VIDE") {
+      // Format: "Titre: ...|Raison: ...|Tag: ..."
+      const titleMatch = rawDetected.match(/Titre:\s*([^|]+)/);
+      const reasonMatch = rawDetected.match(/Raison:\s*([^|]+)/);
+      const tagMatch = rawDetected.match(/Tag:\s*(.+)/);
+
+      if (titleMatch && reasonMatch) {
+        parsedSuggestion = {
+          title: titleMatch[1].trim(),
+          content: reasonMatch[1].trim(),
+          tag: tagMatch ? tagMatch[1].trim() : 'Général'
+        };
+      }
+    }
+  }
+
+  // Fallback to regular suggestion if no detected suggestion
+  if (!parsedSuggestion && suggestionMatch) {
     const rawSugg = suggestionMatch[1].trim();
     if (rawSugg !== "VIDE") {
       const parts = rawSugg.split('|');
@@ -178,11 +240,11 @@ export const sendMessageToPlume = async (
   lastValidNarrative: string = '',
   userProfile?: User | null
 ): Promise<PlumeResponse> => {
-  if (!process.env.API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error("API Key is missing from environment variables.");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   let contextBlock = '';
   if (lastValidNarrative && lastValidNarrative.trim().length > 0) {
@@ -212,8 +274,8 @@ Ton objectif est maintenant d'écrire la SUITE immédiate ou de traiter la nouve
       bioContext += `Important: Utilise cette date pour situer l'âge de l'auteur dans ses souvenirs (ex: s'il parle de 1990, calcule son âge à ce moment-là).\n`;
     }
   }
-
-  const finalSystemInstruction = BASE_SYSTEM_INSTRUCTION + bioContext;
+  const locationContext = buildLocationContext(userProfile || null);
+  const finalSystemInstruction = BASE_SYSTEM_INSTRUCTION + bioContext + "\n" + locationContext;
 
   const formattedPrompt = `
   ${contextBlock}
@@ -241,7 +303,7 @@ Ton objectif est maintenant d'écrire la SUITE immédiate ou de traiter la nouve
     return parsePlumeResponse(responseText);
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    logger.error("Gemini API Error:", error);
     throw error;
   }
 };
@@ -252,23 +314,27 @@ export const synthesizeNarrative = async (
   length: Length,
   fidelity: Fidelity
 ): Promise<PlumeResponse> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const conversationScript = historySegment.map(m => `[${m.role.toUpperCase()}]: ${m.content}`).join('\n\n');
 
   const synthesisPrompt = `
-    TÂCHE: SYNTHÈSE NARRATIVE MAGIQUE.
+    TÂCHE: RÉDACTION LITTÉRAIRE ET CONSOLIDATION.
     
     Voici un segment de conversation récent entre l'Auteur et PLUME.
     
     TA MISSION:
-    Consolide ces échanges en un SEUL récit fluide.
-    - C'est une compilation : rassemble les idées éparses en un tout cohérent.
-    - Ne répète pas les questions, garde le contenu narratif.
-    - Style: Ton=${tone}, Longueur=${length}, Fidélité=${fidelity}.
+    Transforme ces échanges en un récit littéraire riche et détaillé, prêt à être inséré dans une autobiographie.
     
-    SEGMENT À SYNTHÉTISER :
+    RÈGLES D'OR :
+    1. NE FAIS PAS UN RÉSUMÉ. Raconte l'histoire avec tous ses détails, ses nuances et ses émotions.
+    2. Garde la richesse du contenu original : si l'auteur décrit une odeur ou une couleur, conserve-la.
+    3. Adopte le style demandé : Ton=${tone}, Longueur=${length}, Fidélité=${fidelity}.
+    4. Si la longueur est 'Moyen' ou 'Long', prends le temps de développer les descriptions et l'atmosphère.
+    5. Utilise la première personne ("Je") comme si tu étais l'auteur.
+    
+    SEGMENT À TRANSFORMER :
     ${conversationScript}
     `;
 
@@ -287,7 +353,7 @@ export const synthesizeNarrative = async (
 
     return parsed;
   } catch (error) {
-    console.error("Synthesis Error:", error);
+    logger.error("Synthesis Error:", error);
     throw error;
   }
 };
@@ -295,8 +361,8 @@ export const synthesizeNarrative = async (
 export const generateTitleAndMetadata = async (
   text: string
 ): Promise<{ title: string; dates: string[]; characters: string[]; tags: string[] }> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const prompt = `
     TÂCHE: ANALYSE ET TITRAGE DE SOUVENIR.
@@ -345,7 +411,7 @@ export const generateTitleAndMetadata = async (
     return { title: "Nouveau Souvenir", dates: [], characters: [], tags: [] };
 
   } catch (error) {
-    console.error("Title Generation Error:", error);
+    logger.error("Title Generation Error:", error);
     return { title: "Souvenir du " + new Date().toLocaleDateString(), dates: [], characters: [], tags: [] };
   }
 };
@@ -359,8 +425,8 @@ export const generateKickstarter = async (
   ideas: Array<{ id: string; title: string; content: string; tags: string[] }>,
   darkZones: Array<{ title: string; description: string; category: string }>
 ): Promise<PlumeResponse> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   // Build context
   let contextBlock = "";
@@ -446,12 +512,12 @@ IMPORTANT: Utilise les données du contexte pour personnaliser tes suggestions. 
     return parsePlumeResponse(responseText);
 
   } catch (error) {
-    console.error("Kickstarter Generation Error:", error);
+    logger.error("Kickstarter Generation Error:", error);
 
     // Fallback response
     return {
       narrative: "Bravo pour ce chapitre terminé ! Je suis prêt à vous accompagner pour la suite de votre histoire. Quelle période de votre vie souhaitez-vous explorer maintenant ?",
-      data: { dates_chronologie: [], personnages_cites: [], tags_suggeres: [] },
+      data: { dates_chronologie: [], lieux_cites: [], personnages_cites: [], tags_suggeres: [] },
       suggestion: null,
       questions: [
         { type: 'emotion', label: '❤️ Émotion', text: "Quel souvenir vous vient spontanément à l'esprit en ce moment ?" },
@@ -461,3 +527,80 @@ IMPORTANT: Utilise les données du contexte pour personnaliser tes suggestions. 
     };
   }
 };
+
+export function buildLocationContext(userProfile: User | null): string {
+  if (!userProfile?.life_locations || userProfile.life_locations.length === 0) {
+    return '';
+  }
+
+  const locationContext = userProfile.life_locations
+    .map(loc => `${loc.city}, ${loc.country} (${loc.period}) - ${loc.type}`)
+    .join('\n');
+
+  return `[CONTEXTE GÉOGRAPHIQUE DE L'UTILISATEUR]
+L'utilisateur a vécu dans les lieux suivants :
+${locationContext}
+
+Lorsqu'une rue ou un quartier est mentionné sans préciser la ville, considère d'abord les villes ci-dessus.
+`;
+}
+
+export async function generateSouvenirTitle(
+  narrative: string,
+  metadata: {
+    dates?: string[];
+    locations?: string[];
+    people?: string[];
+    tags?: string[];
+  }
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY not found');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `Tu es un expert en titres littéraires. Génère un titre court et évocateur (maximum 50 caractères) pour ce souvenir.
+
+RÉCIT:
+${narrative.substring(0, 500)}...
+
+MÉTADONNÉES:
+- Dates: ${metadata.dates?.join(', ') || 'Non spécifié'}
+- Lieux: ${metadata.locations?.join(', ') || 'Non spécifié'}
+- Personnes: ${metadata.people?.join(', ') || 'Non spécifié'}
+- Thèmes: ${metadata.tags?.join(', ') || 'Non spécifié'}
+
+CONSIGNES:
+1. Le titre doit capturer l'essence émotionnelle du souvenir
+2. Maximum 50 caractères
+3. Évocateur et poétique
+4. Pas de guillemets
+5. Commence par une majuscule
+
+Réponds UNIQUEMENT avec le titre, rien d'autre.`;
+
+  try {
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{ parts: [{ text: prompt }] }]
+    });
+
+    const responseText = result.text;
+    if (!responseText) throw new Error("No title generated");
+
+    let title = responseText.trim();
+
+    // Nettoyer le titre
+    title = title.replace(/^["']|["']$/g, ''); // Enlever les guillemets
+    title = title.substring(0, 50); // Limiter à 50 caractères
+
+    return title;
+  } catch (error) {
+    logger.error('Error generating title:', error);
+    // Fallback: utiliser la première phrase du narratif
+    const firstSentence = narrative.split('.')[0];
+    return firstSentence.substring(0, 50);
+  }
+}

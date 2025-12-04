@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { logger } from '../utils/logger';
 import { ChatMessage, PlumeResponse } from '../types';
 
 export interface UserStats {
@@ -118,7 +119,7 @@ export const calculateUserStats = async (userId: string): Promise<UserStats> => 
             draftedMessages
         };
     } catch (error) {
-        console.error('Error calculating user stats:', error);
+        logger.error('Error calculating user stats:', error);
         // Return default stats on error
         return {
             completion: 0,
@@ -173,14 +174,7 @@ export const analyzeThematicBalance = async (userId: string): Promise<ThemeData[
         const total = Object.values(themeCounts).reduce((sum, count) => sum + count, 0);
 
         if (total === 0) {
-            // Return default distribution if no data
-            return [
-                { name: 'Famille', percentage: 35, pages: 0, color: 'bg-rose-500' },
-                { name: 'Enfance', percentage: 25, pages: 0, color: 'bg-blue-500' },
-                { name: 'Voyages', percentage: 15, pages: 0, color: 'bg-emerald-500' },
-                { name: 'Travail', percentage: 10, pages: 0, color: 'bg-amber-500' },
-                { name: 'Passions', percentage: 15, pages: 0, color: 'bg-purple-500' }
-            ];
+            return [];
         }
 
         // Get user stats for page estimation
@@ -202,7 +196,7 @@ export const analyzeThematicBalance = async (userId: string): Promise<ThemeData[
                 };
             });
     } catch (error) {
-        console.error('Error analyzing thematic balance:', error);
+        logger.error('Error analyzing thematic balance:', error);
         return [];
     }
 };
@@ -320,7 +314,7 @@ export const detectGaps = async (userId: string, userBirthDate?: string): Promis
 
         return gaps;
     } catch (error) {
-        console.error('Error detecting gaps:', error);
+        logger.error('Error detecting gaps:', error);
         return [];
     }
 };
@@ -357,7 +351,7 @@ export const getWritingTimeline = async (userId: string): Promise<{ date: string
             .map(([date, pages]) => ({ date, pages: Math.round(pages) }))
             .sort((a, b) => a.date.localeCompare(b.date));
     } catch (error) {
-        console.error('Error getting writing timeline:', error);
+        logger.error('Error getting writing timeline:', error);
         return [];
     }
 };

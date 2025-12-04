@@ -191,7 +191,7 @@ export const StyleStudio: React.FC<StyleStudioProps> = ({
             {/* Style Cards Grid */}
             <div>
                 <h3 className="text-sm font-semibold text-ink-700 mb-3 uppercase tracking-wide">Choisissez votre ton</h3>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                     {STYLE_OPTIONS.map((style) => (
                         <button
                             key={style.id}
@@ -200,9 +200,9 @@ export const StyleStudio: React.FC<StyleStudioProps> = ({
                                 setSelectedAuthor(null);
                             }}
                             className={`
-                                relative p-4 rounded-lg border-2 transition-all duration-300
+                                relative p-4 rounded-lg border-2 transition-all duration-300 text-left
                                 ${selectedTone === style.id && !selectedAuthor
-                                    ? 'border-accent shadow-lg scale-105'
+                                    ? 'border-accent shadow-lg scale-[1.02]'
                                     : 'border-ink-200 hover:border-accent/50 hover:shadow-md'
                                 }
                             `}
@@ -211,12 +211,14 @@ export const StyleStudio: React.FC<StyleStudioProps> = ({
                                 absolute inset-0 rounded-lg opacity-10 bg-gradient-to-br ${style.color}
                                 ${selectedTone === style.id && !selectedAuthor ? 'opacity-20' : ''}
                             `} />
-                            <div className="relative">
-                                <div className="flex items-center justify-center mb-2 text-accent">
+                            <div className="relative flex items-start gap-3">
+                                <div className="flex-shrink-0 text-accent mt-1">
                                     {style.icon}
                                 </div>
-                                <h4 className="font-bold text-ink-800 text-sm mb-1">{style.name}</h4>
-                                <p className="text-xs text-ink-600 leading-tight">{style.description}</p>
+                                <div>
+                                    <h4 className="font-bold text-ink-800 text-base mb-1">{style.name}</h4>
+                                    <p className="text-sm text-ink-600 leading-snug">{style.description}</p>
+                                </div>
                             </div>
                         </button>
                     ))}

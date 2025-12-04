@@ -19,6 +19,8 @@ import LifeUniverse from './components/LifeUniverse';
 import { DigitalMemoryImporter } from './components/DigitalMemoryImporter';
 import { DigitalMemoryTimeline } from './components/DigitalMemoryTimeline';
 import SupportSection from './components/SupportSection';
+import { StudioView } from './components/StudioView';
+import { ValidationModal, ValidationData } from './components/ValidationModal';
 import { StyleSelector } from './components/StyleSelector';
 import { IconMicrophone, IconStopCircle, IconSettings, IconSend, IconBook, IconFeather, IconLayout, IconLogOut, IconUser, IconClock, IconMagic, IconBookOpen, IconCheck, IconScissors, IconX, IconRefresh, IconTarget, IconSearch, IconCamera, IconUsers, IconMapPin, IconHelp, IconSun, IconMoon, IconSunset, IconEye, IconEyeOff, IconVolume2, IconVolumeX, IconMap, IconSparkles, IconShare2 } from './components/Icons';
 import GuestMemoryCard from './components/GuestMemoryCard';
@@ -65,6 +67,7 @@ const App: React.FC = () => {
     const [userProfile, setUserProfile] = useState<User | null>(null);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showPhotoCatalyst, setShowPhotoCatalyst] = useState(false);
+    const [showValidationModal, setShowValidationModal] = useState(false);
     const [showSupport, setShowSupport] = useState(false);
     const [timeContext, setTimeContext] = useState<string | null>(null);
     const [showTimeContext, setShowTimeContext] = useState(false);
@@ -109,6 +112,7 @@ const App: React.FC = () => {
         ideas: [],
         aggregatedData: {
             dates: new Set<string>(),
+            locations: new Set<string>(),
             characters: new Set<string>(),
             tags: new Set<string>()
         }
@@ -193,6 +197,7 @@ const App: React.FC = () => {
             let loadedMessages: ChatMessage[] = [];
             let initialAggregatedData = {
                 dates: new Set<string>(),
+                locations: new Set<string>(),
                 characters: new Set<string>(),
                 tags: new Set<string>()
             };
@@ -221,6 +226,7 @@ const App: React.FC = () => {
 
                             if (plumeResponse.data) {
                                 plumeResponse.data.dates_chronologie?.forEach((d: string) => initialAggregatedData.dates.add(d));
+                                plumeResponse.data.lieux_cites?.forEach((l: string) => initialAggregatedData.locations.add(l));
                                 plumeResponse.data.personnages_cites?.forEach((c: string) => initialAggregatedData.characters.add(c));
                                 plumeResponse.data.tags_suggeres?.forEach((t: string) => initialAggregatedData.tags.add(t));
                             }
@@ -330,12 +336,14 @@ const App: React.FC = () => {
             setState(prev => {
                 const newAggregatedData = {
                     dates: new Set(prev.aggregatedData.dates),
+                    locations: new Set(prev.aggregatedData.locations),
                     characters: new Set(prev.aggregatedData.characters),
                     tags: new Set(prev.aggregatedData.tags),
                 };
 
                 if (response.data) {
                     response.data.dates_chronologie?.forEach(d => { if (d) { newAggregatedData.dates.add(d); saveEntityToDB('date', d, session.user.id); } });
+                    response.data.lieux_cites?.forEach(l => { if (l) { newAggregatedData.locations.add(l); saveEntityToDB('place', l, session.user.id); } });
                     response.data.personnages_cites?.forEach(c => { if (c) { newAggregatedData.characters.add(c); saveEntityToDB('person', c, session.user.id); } });
                     response.data.tags_suggeres?.forEach(t => { if (t) { newAggregatedData.tags.add(t); saveEntityToDB('theme', t, session.user.id); } });
                 }
@@ -351,13 +359,42 @@ const App: React.FC = () => {
         } finally { setIsLoading(false); }
     }, [isLoading, session, state.messages, tone, length, fidelity, userProfile, showToast]);
 
-    const handleSendMessage = () => {
-        let textToSend = input;
+    const handleSendMessage = (overrideText?: string) => {
+        let textToSend = overrideText || input;
         if (timeContext) {
             textToSend = `[CONTEXTE TEMPOREL: ${timeContext}] ${textToSend}`;
         }
         triggerSend(textToSend);
         setTimeContext(null);
+    };
+
+    const handleQuestionClick = async (messageId: string, questionIndex: number) => {
+        setState(prev => ({
+            ...prev,
+            messages: prev.messages.map(m => {
+                if (m.id === messageId && m.role === 'assistant') {
+                    const content = m.content as PlumeResponse;
+                    return {
+                        ...m,
+                        content: {
+                            ...content,
+                            selectedQuestionIndex: questionIndex
+                        }
+                    };
+                }
+                return m;
+            })
+        }));
+        // Note: We don't auto-send anymore, we just select the question.
+        // The user can then click send or edit the input.
+        // If we wanted to auto-fill input:
+        const msg = state.messages.find(m => m.id === messageId);
+        if (msg) {
+            const content = msg.content as PlumeResponse;
+            if (content.questions && content.questions[questionIndex]) {
+                setInput(content.questions[questionIndex].text);
+            }
+        }
     };
 
     const handleStartRecording = async () => {
@@ -560,72 +597,68 @@ const App: React.FC = () => {
         }
     };
     const handleUpdateDraft = (content: string) => setDraftContent(content);
-    const handleInsertDraft = async () => {
-        if (!session?.user || !draftContent.trim()) return;
+    const handleValidationConfirm = async (data: ValidationData) => {
         setIsLoading(true);
         try {
-            // 1. Generate Title & Metadata via AI
-            showToast("Analyse et titrage du souvenir...", 'success');
-            const { title, dates, characters, tags } = await generateTitleAndMetadata(draftContent);
-
-            // 2. Save Chapter with AI Title
+            // Save Chapter with Validated Data
             if (workspaceId) {
-                // Update existing chapter (whether it was a draft or an existing souvenir)
                 const { error } = await supabase.from('chapters').update({
-                    title: title,
-                    content: draftContent,
+                    title: data.title,
+                    content: data.content,
                     status: 'published',
                     metadata: {
-                        dates,
-                        characters,
-                        tags
+                        dates: data.metadata.dates,
+                        locations: data.metadata.locations,
+                        characters: data.metadata.people,
+                        tags: data.metadata.tags
                     },
                     updated_at: new Date().toISOString()
                 }).eq('id', workspaceId);
                 if (error) throw error;
             } else {
-                // Insert new chapter
                 const { error } = await supabase.from('chapters').insert({
                     user_id: session.user.id,
-                    title: title,
-                    content: draftContent,
+                    title: data.title,
+                    content: data.content,
                     status: 'published',
                     metadata: {
-                        dates,
-                        characters,
-                        tags
+                        dates: data.metadata.dates,
+                        locations: data.metadata.locations,
+                        characters: data.metadata.people,
+                        tags: data.metadata.tags
                     }
                 });
                 if (error) throw error;
             }
 
-            // 3. Save Extracted Entities for Smart Filters
+            // Save Extracted Entities
             const entityPromises = [
-                ...dates.map(d => saveEntityToDB('date', d, session.user.id)),
-                ...characters.map(c => saveEntityToDB('person', c, session.user.id)),
-                ...tags.map(t => saveEntityToDB('theme', t, session.user.id))
+                ...data.metadata.dates.map(d => saveEntityToDB('date', d, session.user.id)),
+                ...data.metadata.locations.map(l => saveEntityToDB('place', l, session.user.id)),
+                ...data.metadata.people.map(c => saveEntityToDB('person', c, session.user.id)),
+                ...data.metadata.tags.map(t => saveEntityToDB('theme', t, session.user.id))
             ];
             await Promise.all(entityPromises);
 
-            // 4. Update Local State for Filters
+            // Update Local State
             setState(prev => {
                 const newDates = new Set(prev.aggregatedData.dates);
+                const newLocations = new Set(prev.aggregatedData.locations);
                 const newCharacters = new Set(prev.aggregatedData.characters);
                 const newTags = new Set(prev.aggregatedData.tags);
 
-                dates.forEach(d => newDates.add(d));
-                characters.forEach(c => newCharacters.add(c));
-                tags.forEach(t => newTags.add(t));
+                data.metadata.dates.forEach(d => newDates.add(d));
+                data.metadata.locations.forEach(l => newLocations.add(l));
+                data.metadata.people.forEach(c => newCharacters.add(c));
+                data.metadata.tags.forEach(t => newTags.add(t));
 
                 return {
                     ...prev,
-                    aggregatedData: { dates: newDates, characters: newCharacters, tags: newTags }
+                    aggregatedData: { dates: newDates, locations: newLocations, characters: newCharacters, tags: newTags }
                 };
             });
 
-            // 5. Archive Messages (Clear from View, Keep for Boutique)
-            // We update all current messages to have isArchived: true
-            // This ensures they don't show up in the active chat but remain in history/boutique
+            // Archive Messages
             const messagesToArchive = state.messages.filter(m => m.id !== 'welcome');
             const archivePromises = messagesToArchive.map(async (m) => {
                 let newContent: any;
@@ -640,8 +673,9 @@ const App: React.FC = () => {
 
             setDraftContent('');
             setWorkspaceId(null);
+            setShowValidationModal(false);
 
-            // Reset Chat to Welcome Message only
+            // Reset Chat
             const welcomeMsg = {
                 id: 'welcome',
                 role: 'assistant',
@@ -658,7 +692,7 @@ const App: React.FC = () => {
             setState(prev => ({ ...prev, messages: [welcomeMsg as ChatMessage] }));
 
             soundManager.playSuccess();
-            showToast(`Souvenir gravé: "${title}"`, 'success');
+            showToast(`Souvenir gravé: "${data.title}"`, 'success');
 
         } catch (err: any) {
             console.error("Error saving chapter:", err);
@@ -666,6 +700,11 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleInsertDraft = async () => {
+        if (!session?.user || !draftContent.trim()) return;
+        setShowValidationModal(true);
     };
 
     const handleSouvenirSelect = async (souvenirId: string) => {
@@ -802,6 +841,48 @@ const App: React.FC = () => {
         setIsLoading(true);
 
         try {
+            // 0. Auto-save current draft if exists
+            if (draftContent.trim()) {
+                if (workspaceId) {
+                    await supabase.from('chapters').update({
+                        content: draftContent,
+                        updated_at: new Date().toISOString()
+                    }).eq('id', workspaceId);
+                } else {
+                    await supabase.from('chapters').insert({
+                        user_id: session.user.id,
+                        title: "Brouillon auto - " + new Date().toLocaleTimeString(),
+                        content: draftContent,
+                        status: 'draft',
+                        metadata: {
+                            dates: Array.from(state.aggregatedData.dates),
+                            locations: Array.from(state.aggregatedData.locations),
+                            characters: Array.from(state.aggregatedData.characters),
+                            tags: Array.from(state.aggregatedData.tags)
+                        }
+                    });
+                }
+                showToast("Brouillon précédent sauvegardé.", 'success');
+            }
+
+            // 0.5 ARCHIVE OLD MESSAGES (Fix persistence issue)
+            const messagesToArchive = state.messages.filter(m => m.id !== 'welcome');
+            const archivePromises = messagesToArchive.map(async (m) => {
+                let newContent: any;
+                if (typeof m.content === 'string') {
+                    newContent = { text: m.content, isArchived: true };
+                } else {
+                    newContent = { ...m.content, isArchived: true };
+                }
+                return supabase.from('messages').update({ content: newContent }).eq('id', m.id);
+            });
+            await Promise.all(archivePromises);
+
+            // Reset workspace for new sequence
+            setDraftContent('');
+            setWorkspaceId(null);
+            lastCompiledMessageIdRef.current = null;
+
             // 1. Add divider to history (for persistence)
             const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: '', timestamp: Date.now(), isDivider: true };
             await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
@@ -840,8 +921,17 @@ const App: React.FC = () => {
                 content: kickstarterResponse
             });
 
-            // 7. Update UI with divider + AI message
-            setState(prev => ({ ...prev, messages: [dividerMsg, aiMsg] }));
+            // 7. Update UI with divider + AI message + RESET aggregatedData
+            setState(prev => ({
+                ...prev,
+                messages: [dividerMsg, aiMsg],
+                aggregatedData: {
+                    dates: new Set<string>(),
+                    locations: new Set<string>(),
+                    characters: new Set<string>(),
+                    tags: new Set<string>()
+                }
+            }));
 
             showToast("Nouvelle session démarrée ! Plume vous propose des pistes.", 'success');
 
@@ -947,6 +1037,47 @@ Date: ${dateStr}.
         generateWelcome();
     }, [currentView, hasWelcomedSession, session, userProfile, state.ideas]);
 
+    const lastCompiledMessageIdRef = useRef<string | null>(null);
+
+    const handleAutoCompile = async (msgs: ChatMessage[]) => {
+        if (msgs.length === 0) return;
+
+        const lastMsg = msgs[msgs.length - 1];
+
+        // Only process assistant messages
+        if (lastMsg.role !== 'assistant') return;
+
+        // CRITICAL FIX: Ignore Welcome Messages or System Messages
+        // We only compile if the assistant is responding to a USER message.
+        // If the previous message is not from the user (e.g. it's a divider or null), skip it.
+        const previousMsg = msgs.length > 1 ? msgs[msgs.length - 2] : null;
+        if (!previousMsg || previousMsg.role !== 'user') return;
+
+        // Avoid processing the same message twice
+        if (lastMsg.id === lastCompiledMessageIdRef.current) return;
+
+        // Skip dividers or messages without narrative
+        if (lastMsg.isDivider) return;
+        const content = lastMsg.content as PlumeResponse;
+        if (!content.narrative) return;
+
+        // Append to draft content (Additive Logic)
+        setDraftContent(prev => {
+            const separator = prev.trim() ? '\n\n' : '';
+            return prev + separator + content.narrative;
+        });
+
+        // Mark as processed
+        lastCompiledMessageIdRef.current = lastMsg.id;
+    };
+
+    // Trigger Auto-Compile when messages change
+    useEffect(() => {
+        if (currentView === 'studio' && state.messages.length > 0) {
+            handleAutoCompile(state.messages);
+        }
+    }, [state.messages, currentView]);
+
     if (!session || currentView === 'landing') return <LandingPage onLogin={() => { }} />;
 
     const lastAssistantMsgIndex = state.messages.map(m => m.role === 'assistant' && !m.isDivider).lastIndexOf(true);
@@ -962,6 +1093,23 @@ Date: ${dateStr}.
                     userContext={{ firstName: userProfile?.firstName, birthDate: userProfile?.birthDate }}
                     onComplete={handlePhotoCatalystComplete}
                     onClose={() => setShowPhotoCatalyst(false)}
+                />
+            )}
+            {showValidationModal && (
+                <ValidationModal
+                    isOpen={showValidationModal}
+                    onClose={() => setShowValidationModal(false)}
+                    onConfirm={handleValidationConfirm}
+                    initialData={{
+                        title: '', // Will be generated or filled
+                        content: draftContent,
+                        maturityScore: { score: 80, status: 'germination', feedback: [] }, // Mock or calc
+                        dates: Array.from(state.aggregatedData.dates),
+                        locations: Array.from(state.aggregatedData.locations),
+                        people: Array.from(state.aggregatedData.characters),
+                        tags: Array.from(state.aggregatedData.tags)
+                    }}
+                    isLoading={isLoading}
                 />
             )}
             {showSupport && (
@@ -986,14 +1134,11 @@ Date: ${dateStr}.
                     </div>
                 </div>
                 <nav className="hidden md:flex items-center gap-2 bg-ink-50 p-1.5 rounded-xl border border-ink-100">
-                    <button onClick={() => setCurrentView('studio')} className={`nav-btn ${currentView === 'studio' ? 'active' : ''}`}><IconLayout className="w-5 h-5" />Atelier</button>
+                    <button onClick={() => setCurrentView('studio')} className={`nav-btn ${currentView === 'studio' ? 'active' : ''}`}><IconLayout className="w-5 h-5" />L'Atelier des Souvenirs</button>
                     <button onClick={() => setCurrentView('dashboard')} className={`nav-btn ${currentView === 'dashboard' ? 'active' : ''}`}><IconTarget className="w-5 h-5" />Tableau de Bord</button>
-                    <button onClick={() => setCurrentView('boutique')} className={`nav-btn ${currentView === 'boutique' ? 'active' : ''}`}><IconSearch className="w-5 h-5" />Boutique</button>
+                    <button onClick={() => setCurrentView('boutique')} className={`nav-btn ${currentView === 'boutique' ? 'active' : ''}`}><IconSearch className="w-5 h-5" />La Boutique des Souvenirs</button>
                     <button onClick={() => setCurrentView('universe')} className={`nav-btn ${currentView === 'universe' ? 'active' : ''}`}><IconMap className="w-5 h-5" />Univers de Vie</button>
                     <button onClick={() => setCurrentView('manuscript')} className={`nav-btn ${currentView === 'manuscript' ? 'active' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
-                    <button onClick={() => setCurrentView('gallery')} className={`nav-btn ${currentView === 'gallery' ? 'active' : ''}`}><IconUser className="w-5 h-5" />Souvenirs</button>
-                    <button onClick={() => setCurrentView('digital-memory')} className={`nav-btn ${currentView === 'digital-memory' ? 'active' : ''}`}><IconSparkles className="w-5 h-5" />Mémoire Digitale</button>
-                    <button onClick={() => setCurrentView('guest_prototype')} className={`nav-btn ${currentView === 'guest_prototype' ? 'active' : ''}`}><IconShare2 className="w-5 h-5" />Guest (Proto)</button>
                 </nav>
                 <div className="flex items-center gap-6">
                     <div className="hidden md:flex items-center bg-ink-100 rounded-full p-1 border border-ink-200 mr-2">
@@ -1029,140 +1174,45 @@ Date: ${dateStr}.
                 <button onClick={() => setCurrentView('boutique')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'boutique' ? 'text-accent' : ''}`}><IconSearch className="w-5 h-5" />Boutique</button>
                 <button onClick={() => setCurrentView('universe')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'universe' ? 'text-accent' : ''}`}><IconMap className="w-5 h-5" />Univers</button>
                 <button onClick={() => setCurrentView('manuscript')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'manuscript' ? 'text-accent' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
-                <button onClick={() => setCurrentView('gallery')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'gallery' ? 'text-accent' : ''}`}><IconUser className="w-5 h-5" />Souvenirs</button>
-                <button onClick={() => setCurrentView('digital-memory')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'digital-memory' ? 'active' : ''}`}><IconSparkles className="w-5 h-5" />Mémoire</button>
-                <button onClick={() => setCurrentView('guest_prototype')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'guest_prototype' ? 'text-accent' : ''}`}><IconShare2 className="w-5 h-5" />Guest</button>
             </div>
             <div className="flex flex-1 pt-20 h-full w-full overflow-y-auto">
                 {currentView === 'studio' && (
-                    <>
-                        {!focusMode && (
-                            <div className={`fixed inset-y-0 left-0 top-20 z-30 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${showLeftPanel ? 'translate-x-0' : '-translate-x-full'} ${showLeftPanel ? 'w-92 shadow-2xl' : 'w-0 md:w-0 lg:w-83'} bg-white overflow-hidden border-r border-ink-100`}>
-                                <div className="h-full w-92 lg:w-83"><IdeaChest ideas={state.ideas} draftContent={draftContent} onAddIdea={manualAddIdea} onDeleteIdea={deleteIdea} onIdeaClick={handleIdeaClick} onUpdateDraft={handleUpdateDraft} onInsertDraft={handleInsertDraft} /></div>
-                            </div>
-                        )}
-                        <div className="flex-1 flex flex-col h-full min-w-0 relative">
-                            {!focusMode && (
-                                <div className="md:hidden h-12 bg-white border-b border-ink-100 flex items-center justify-between px-4 shrink-0">
-                                    <button onClick={toggleLeftPanel} className="p-2 text-ink-500 hover:text-ink-800"><IconBook className="w-5 h-5" /></button>
-                                    <span className="font-serif font-bold text-ink-800">Chapitre en cours</span>
-                                </div>
-                            )}
-                            <main className={`flex-1 overflow-y-auto scroll-smooth bg-gradient-to-br from-slate-50 via-amber-50/30 to-rose-50/20 ${focusMode ? 'p-8 md:p-16 pt-8' : 'p-4 md:p-8'}`}>
-                                <div className={focusMode ? 'max-w-5xl mx-auto' : 'max-w-4xl mx-auto'}>
-                                    <button
-                                        onClick={() => setFocusMode(!focusMode)}
-                                        className="fixed top-24 right-6 z-50 p-3 bg-white/90 backdrop-blur-sm border border-ink-200 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 text-ink-600 hover:text-accent group"
-                                        title={focusMode ? 'Quitter le mode Focus' : 'Mode Focus'}
-                                    >
-                                        {focusMode ? <IconEye className="w-5 h-5" /> : <IconEyeOff className="w-5 h-5" />}
-                                    </button>
-                                    {state.messages.map((msg, index) => (<MessageBubble key={msg.id} message={msg} onSaveIdea={addIdea} onQuestionClick={handleSelectAngle} onAddToDraft={handleAddToDraft} onDeleteMessage={handleDeleteMessage} onInitiateRegenerate={handleInitiateRegeneration} isLastAssistantMessage={index === lastAssistantMsgIndex} />))}
-                                    {isLoading && (
-                                        <div className="flex justify-start mb-8">
-                                            <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl shadow-md border border-ink-100">
-                                                <div className="bg-accent text-white p-2 rounded-full animate-feather-float">
-                                                    <IconFeather className="w-5 h-5" />
-                                                </div>
-                                                <span className="text-ink-600 text-sm font-serif italic">Plume rédige votre histoire...</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div ref={messagesEndRef} />
-                                </div>
-                            </main>
-                            {!focusMode && (
-                                <div className="w-full bg-white border-t border-ink-100 p-4 shadow-[0_-5px_20px_rgba(0,0,0,0.03)] z-20 mb-16 md:mb-0">
-                                    <div className="max-w-5xl mx-auto space-y-3">
-                                        {/* Settings Panel - Positioned Above Textarea */}
-                                        {showSettings && (
-                                            <div className="p-5 bg-white rounded-2xl border border-ink-200 shadow-lg animate-fade-in max-h-[60vh] overflow-y-auto">
-                                                <StyleSelector
-                                                    tone={tone}
-                                                    length={length}
-                                                    fidelity={fidelity}
-                                                    onToneChange={setTone}
-                                                    onLengthChange={setLength}
-                                                    onFidelityChange={setFidelity}
-                                                    isLoading={isLoading}
-                                                />
-                                            </div>
-                                        )}
-
-                                        {/* Settings Toggle Button */}
-                                        <div className="px-1 flex justify-between items-center">
-                                            <button onClick={() => setShowSettings(!showSettings)} className={`flex items-center gap-2 text-sm font-medium transition-colors px-4 py-2 rounded-full ${showSettings ? 'bg-accent/10 text-accent' : 'text-ink-500 hover:bg-ink-100'}`}><IconSettings className="w-4 h-4" /><span>Paramètres de rédaction</span></button>
-                                            {isRecording && <span className="text-red-500 text-sm font-medium animate-pulse flex items-center gap-2"><span className="w-2 h-2 bg-red-500 rounded-full"></span>Enregistrement...</span>}
-                                        </div>
-
-                                        <div className="relative group">
-                                            <textarea
-                                                ref={inputRef}
-                                                value={input}
-                                                onChange={(e) => setInput(e.target.value)}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                                                placeholder={isRecording ? "Je vous écoute..." : regenerationInfo ? "Ajustez les paramètres et confirmez la régénération" : "Racontez-moi un souvenir..."}
-                                                className="w-full bg-white border-2 border-ink-100 rounded-2xl px-8 py-4 pr-64 text-lg text-ink-800 placeholder-ink-400 focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/10 transition-all resize-none min-h-[140px] max-h-[300px] font-sans shadow-sm group-hover:shadow-md"
-                                                rows={3}
-                                                disabled={isLoading || isRecording || !!regenerationInfo}
-                                            />
-                                            {regenerationInfo ? (
-                                                <div className="absolute right-4 bottom-4 flex gap-2.5">
-                                                    <button onClick={handleCancelRegeneration} className="p-3 rounded-xl bg-ink-100 text-ink-600 hover:bg-ink-200 transition-colors" title="Annuler"><IconX className="w-6 h-6" /></button>
-                                                    <button onClick={handleConfirmRegeneration} className="p-3 rounded-xl bg-accent text-white shadow-lg hover:bg-accent-light transition-colors flex items-center gap-2 px-4 font-medium" title="Confirmer la régénération"><IconRefresh className="w-6 h-6" /><span>Régénérer</span></button>
-                                                </div>
-                                            ) : (
-                                                <div className="absolute right-4 bottom-4 flex gap-2.5">
-                                                    <button onClick={() => setShowTimeContext(!showTimeContext)} disabled={isLoading || isRecording} className={`input-btn ${timeContext ? 'text-accent bg-accent/10' : ''}`} title="Contexte Temporel"><IconClock className="w-6 h-6" /></button>
-                                                    <button onClick={() => setShowPhotoCatalyst(true)} disabled={isLoading || isRecording} className="input-btn hover:bg-accent/10 hover:text-accent" title="Catalyseur Photo"><IconCamera className="w-6 h-6" /></button>
-                                                    <button onClick={handleNewSequence} disabled={isLoading || isRecording} className="input-btn" title="Nouveau sujet"><IconScissors className="w-6 h-6" /></button>
-                                                    <button onClick={handleSynthesis} disabled={isLoading || isRecording} className="input-btn" title="Synthèse"><IconMagic className="w-6 h-6" /></button>
-                                                    {!isRecording ? (
-                                                        <>
-                                                            <button onClick={handleStartRecording} disabled={isLoading} className="input-btn hover:bg-red-50 hover:text-red-500" title="Dictée vocale"><IconMicrophone className="w-6 h-6" /></button>
-                                                            <button onClick={handleSendMessage} disabled={!input.trim() || isLoading} className={`p-3 rounded-xl transition-all ${input.trim() && !isLoading ? 'bg-accent text-white shadow-lg hover:bg-accent-light hover:shadow-xl transform hover:-translate-y-0.5' : 'bg-ink-100 text-ink-300 cursor-not-allowed'}`} title="Envoyer"><IconSend className="w-6 h-6" /></button>
-                                                        </>
-                                                    ) : (
-                                                        <button onClick={handleStopRecording} className="p-3 rounded-xl bg-red-500 text-white shadow-lg hover:bg-red-600 hover:shadow-xl transition-all animate-pulse flex items-center gap-2" title="Arrêter"><IconStopCircle className="w-6 h-6" /><span className="font-bold text-sm uppercase tracking-wide">Arrêter</span></button>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {/* Time Context Popover */}
-                                            {showTimeContext && (
-                                                <div className="absolute bottom-20 right-32 bg-white p-4 rounded-xl shadow-xl border border-ink-100 z-50 w-64 animate-fade-in">
-                                                    <h3 className="font-bold text-ink-800 mb-2 text-sm">Situer ce souvenir</h3>
-                                                    <div className="grid grid-cols-2 gap-2 mb-3">
-                                                        {['Enfance', 'Adolescence', 'Jeune Adulte', 'Adulte'].map(period => (
-                                                            <button key={period} onClick={() => { setTimeContext(period); setShowTimeContext(false); }} className="px-3 py-2 bg-ink-50 hover:bg-accent/10 hover:text-accent rounded-lg text-xs transition-colors text-left font-medium">
-                                                                {period}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Ou une année (ex: 1995)..."
-                                                        className="w-full border border-ink-200 rounded-lg px-3 py-2 text-sm focus:border-accent outline-none"
-                                                        onKeyDown={(e) => { if (e.key === 'Enter') { setTimeContext(e.currentTarget.value); setShowTimeContext(false); } }}
-                                                    />
-                                                </div>
-                                            )}
-
-                                            {/* Time Context Badge */}
-                                            {timeContext && (
-                                                <div className="absolute -top-3 left-4 transform -translate-y-full bg-accent text-white px-3 py-1 rounded-t-lg text-xs font-bold flex items-center gap-2 animate-fade-in shadow-sm">
-                                                    <IconClock className="w-3 h-3" />
-                                                    <span>{timeContext}</span>
-                                                    <button onClick={() => setTimeContext(null)} className="hover:text-white/80 ml-1"><IconX className="w-3 h-3" /></button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                    </>
+                    <StudioView
+                        user={session?.user}
+                        userProfile={userProfile}
+                        tone={tone}
+                        length={length}
+                        fidelity={fidelity}
+                        setTone={setTone}
+                        setLength={setLength}
+                        setFidelity={setFidelity}
+                        ideas={state.ideas}
+                        onAddIdea={manualAddIdea}
+                        onDeleteIdea={deleteIdea}
+                        draftContent={draftContent}
+                        setDraftContent={setDraftContent}
+                        onInsertDraft={handleInsertDraft}
+                        compiledText={draftContent}
+                        isCompiling={false}
+                        onCompilationEdit={handleUpdateDraft}
+                        onCompilationRefresh={handleSynthesis}
+                        autoCompile={handleAutoCompile}
+                        aggregatedData={state.aggregatedData}
+                        sessionMessages={state.messages}
+                        isSending={isLoading}
+                        onSendMessage={async (text) => { handleSendMessage(text); return Promise.resolve(); }}
+                        onQuestionClick={async (id, index) => { await handleQuestionClick(id, index); }}
+                        onInsertDivider={async (label) => {
+                            if (!label) {
+                                await handleNewSequence();
+                            } else {
+                                const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: label || '', timestamp: Date.now(), isDivider: true };
+                                await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: { text: label || '' }, isDivider: true });
+                                setState(prev => ({ ...prev, messages: [...prev.messages, dividerMsg] }));
+                            }
+                        }}
+                        onSave={handleInsertDraft}
+                    />
                 )}
                 {currentView === 'dashboard' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><PlumeDashboard userId={session.user.id} userProfile={userProfile} messages={state.messages} onGapClick={handleGapAction} /></div>)}
                 {currentView === 'boutique' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><BoutiqueSouvenirs userId={session.user.id} onSouvenirSelect={handleSouvenirSelect} /></div>)}

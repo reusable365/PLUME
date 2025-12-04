@@ -47,6 +47,7 @@ export interface DigitalMemory {
 
 export interface ExtractedData {
   dates_chronologie: string[];
+  lieux_cites: string[];
   personnages_cites: string[];
   tags_suggeres: string[];
 }
@@ -74,7 +75,7 @@ export interface PlumeResponse {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string | PlumeResponse;
   timestamp: number;
   isSynthesized?: boolean;
@@ -95,6 +96,7 @@ export interface AppState {
   ideas: Idea[];
   aggregatedData: {
     dates: Set<string>;
+    locations: Set<string>;
     characters: Set<string>;
     tags: Set<string>;
   };
@@ -139,14 +141,22 @@ export interface PhotoCatalystResult {
   generatedPrompt: string;      // Prompt généré pour PLUME
 }
 
+export interface LifeLocation {
+  city: string;
+  country: string;
+  period: string; // ex: "1982-1994"
+  type: 'birth' | 'childhood' | 'adolescence' | 'adult' | 'current';
+}
+
 export interface User {
   id: string;
   email: string;
-  plan: 'free' | 'premium';
+  name: string;
+  subscription_status: 'free' | 'premium';
+  life_locations?: LifeLocation[];
   firstName?: string;
   lastName?: string;
   birthDate?: string;
-  name?: string; // Fallback pour l'affichage
   photos?: Photo[];
 }
 
@@ -225,4 +235,16 @@ export interface DigitalMemory {
     themes: string[];
     suggestedAngles: string[];
   };
+}
+
+export interface GuestContext {
+  souvenirId: string;
+  authorName: string;
+  memoryTitle: string;
+  memoryContext: {
+    location: string;
+    date: string;
+    tags: string[];
+  };
+  authorQuestion: string;
 }

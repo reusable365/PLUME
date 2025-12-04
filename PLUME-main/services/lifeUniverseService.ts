@@ -6,6 +6,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from "./supabaseClient";
 import { User, ChatMessage, PlumeResponse } from "../types";
+import { logger } from "../utils/logger";
 
 // =====================================================
 // TYPES
@@ -93,7 +94,7 @@ export const analyzeLifeUniverse = async (
 ): Promise<LifeUniverseData> => {
     // Check cache
     if (universeCache[userId] && Date.now() - universeCache[userId].timestamp < CACHE_TTL) {
-        console.log('Returning cached Life Universe data');
+        logger.debug('Returning cached Life Universe data');
         return universeCache[userId].data;
     }
 
@@ -143,7 +144,7 @@ export const analyzeLifeUniverse = async (
         return result;
 
     } catch (error) {
-        console.error('Error analyzing Life Universe:', error);
+        logger.error('Failed to analyze Life Universe', error);
         return {
             places: [],
             relationships: [],
@@ -159,9 +160,9 @@ export const analyzeLifeUniverse = async (
 // =====================================================
 
 const extractPlaces = async (narratives: string[], userProfile: User | null): Promise<Place[]> => {
-    if (!process.env.API_KEY) return [];
+    if (!process.env.GEMINI_API_KEY) return [];
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const prompt = `
 Tu es un expert en analyse géographique de récits autobiographiques.
@@ -221,7 +222,7 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 20 lieux.
         }));
 
     } catch (error) {
-        console.error('Error extracting places:', error);
+        logger.error('Failed to extract places from narratives', error);
         return [];
     }
 };
@@ -231,9 +232,9 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 20 lieux.
 // =====================================================
 
 const extractRelationships = async (narratives: string[], userProfile: User | null): Promise<Relationship[]> => {
-    if (!process.env.API_KEY) return [];
+    if (!process.env.GEMINI_API_KEY) return [];
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const prompt = `
 Tu es un expert en analyse relationnelle de récits autobiographiques.
@@ -293,7 +294,7 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 30 personnes.
         }));
 
     } catch (error) {
-        console.error('Error extracting relationships:', error);
+        logger.error('Failed to extract relationships from narratives', error);
         return [];
     }
 };
@@ -303,9 +304,9 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 30 personnes.
 // =====================================================
 
 const buildTimeline = async (narratives: string[], userProfile: User | null): Promise<TimelineEvent[]> => {
-    if (!process.env.API_KEY || !userProfile?.birthDate) return [];
+    if (!process.env.GEMINI_API_KEY || !userProfile?.birthDate) return [];
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const birthYear = new Date(userProfile.birthDate).getFullYear();
 
     const prompt = `
@@ -363,7 +364,7 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 20 événements.
         }));
 
     } catch (error) {
-        console.error('Error building timeline:', error);
+        logger.error('Failed to build timeline from narratives', error);
         return [];
     }
 };
@@ -373,9 +374,9 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 20 événements.
 // =====================================================
 
 const detectLifePeriods = async (narratives: string[], userProfile: User | null): Promise<LifePeriod[]> => {
-    if (!process.env.API_KEY || !userProfile?.birthDate) return [];
+    if (!process.env.GEMINI_API_KEY || !userProfile?.birthDate) return [];
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const birthYear = new Date(userProfile.birthDate).getFullYear();
     const currentYear = new Date().getFullYear();
 
@@ -441,7 +442,7 @@ Réponds UNIQUEMENT avec le JSON array. Maximum 10 périodes.
         }));
 
     } catch (error) {
-        console.error('Error detecting life periods:', error);
+        logger.error('Failed to detect life periods from narratives', error);
         return [];
     }
 };
@@ -588,7 +589,7 @@ const saveLifeUniverseData = async (
         }
 
     } catch (error) {
-        console.error('Error saving Life Universe data:', error);
+        logger.error('Failed to save Life Universe data to database', error);
     }
 };
 

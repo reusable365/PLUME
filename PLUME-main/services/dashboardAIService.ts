@@ -2,10 +2,17 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { ChatMessage, PlumeResponse, User } from "../types";
 import { UserStats, ThemeData, Gap } from "./analyticsService";
+import { logger } from "../utils/logger";
 
 // Zod Schemas
 const AIInsightSchema = z.object({
-    type: z.enum(['pattern', 'recommendation', 'achievement']),
+    type: z.string().transform(val => {
+        const normalized = val.toLowerCase();
+        if (['pattern', 'recommendation', 'achievement'].includes(normalized)) {
+            return normalized as 'pattern' | 'recommendation' | 'achievement';
+        }
+        return 'pattern'; // Default fallback
+    }),
     title: z.string(),
     description: z.string(),
     priority: z.number().min(1).max(5).optional().default(3),
@@ -79,7 +86,7 @@ export const analyzeWritingPatterns = async (
     userProfile: User | null,
     stats: UserStats
 ): Promise<WritingAnalysis> => {
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
         throw new Error("API Key is missing");
     }
 
@@ -116,11 +123,11 @@ export const analyzeWritingPatterns = async (
     if (analysisCache[cacheKey] &&
         analysisCache[cacheKey].hash === contentHash &&
         Date.now() - analysisCache[cacheKey].timestamp < CACHE_TTL) {
-        console.log('Returning cached writing analysis');
+        logger.info('Returning cached writing analysis');
         return analysisCache[cacheKey].data;
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.GEMINI_API_KEY });
 
     const analysisPrompt = `
 Tu es un expert littéraire et biographe. Analyse ce corpus autobiographique.
@@ -221,7 +228,7 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON, aucun texte avant ou après.
         return finalAnalysis;
 
     } catch (error) {
-        console.error('Error analyzing writing patterns:', error);
+        logger.error('Error analyzing writing patterns:', error);
 
         // Fallback analysis
         return {
@@ -321,7 +328,7 @@ export const detectNarrativeGapsAI = async (
     messages: ChatMessage[],
     userProfile: User | null
 ): Promise<Gap[]> => {
-    if (!process.env.API_KEY || !userProfile?.birthDate) {
+    if (!import.meta.env.GEMINI_API_KEY || !userProfile?.birthDate) {
         return [];
     }
 
@@ -342,11 +349,11 @@ export const detectNarrativeGapsAI = async (
     if (gapsCache[cacheKey] &&
         gapsCache[cacheKey].hash === contentHash &&
         Date.now() - gapsCache[cacheKey].timestamp < CACHE_TTL) {
-        console.log('Returning cached gaps analysis');
+        logger.info('Returning cached gaps analysis');
         return gapsCache[cacheKey].data;
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.GEMINI_API_KEY });
     const birthYear = new Date(userProfile.birthDate).getFullYear();
     const currentYear = new Date().getFullYear();
 
@@ -417,7 +424,7 @@ Réponds UNIQUEMENT avec le JSON array.
         return finalGaps;
 
     } catch (error) {
-        console.error('Error detecting AI gaps:', error);
+        logger.error('Error detecting AI gaps:', error);
         return [];
     }
 };

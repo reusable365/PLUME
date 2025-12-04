@@ -241,29 +241,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSaveIdea, onQu
                         {plumeContent.narrative}
                     </div>
 
-                    {/* Action Bar */}
-                    {!isSynthesized && (
-                        <div className="mt-4 flex justify-end opacity-100 transition-opacity relative z-20">
-                            {isDrafted ? (
-                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded text-xs font-bold uppercase tracking-wide cursor-default">
-                                    <IconCheck className="w-3.5 h-3.5" />
-                                    <span>Versé dans l'ébauche</span>
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={() => onAddToDraft && onAddToDraft(plumeContent!.narrative, message.id)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-xs font-medium transition-all shadow-sm group-hover:shadow-md ${isSynthesisResult
-                                        ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700 hover:border-indigo-700'
-                                        : 'bg-white border-ink-200 text-ink-600 hover:text-accent hover:border-accent'
-                                        }`}
-                                    title="Copier ce texte dans votre ébauche de travail"
-                                >
-                                    <span>Verser dans l'ébauche</span>
-                                    <IconArrowRight className="w-3.5 h-3.5" />
-                                </button>
-                            )}
-                        </div>
-                    )}
+                    {/* Note: "Verser dans l'ébauche" button removed for assistant messages - only user messages can be added to draft */}
 
                     {/* Suggestion Intégrée */}
                     {plumeContent.suggestion && !isDrafted && !isSynthesized && (

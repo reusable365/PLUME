@@ -1,4 +1,5 @@
 import { DigitalMemory } from '../types';
+import { logger } from '../utils/logger';
 
 /**
  * Service pour analyser les profils publics via IA
@@ -85,12 +86,12 @@ IMPORTANT : Ne retourne que des informations PUBLIQUES. Si le profil est privé 
         error?: string;
     }> {
         try {
-            if (!process.env.API_KEY) {
+            if (!process.env.GEMINI_API_KEY) {
                 throw new Error('API Key Gemini manquante');
             }
 
             const { GoogleGenAI } = await import('@google/genai');
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
             const prompt = this.generateAnalysisPrompt(profile);
 
@@ -123,7 +124,7 @@ IMPORTANT : Ne retourne que des informations PUBLIQUES. Si le profil est privé 
 
             return { success: false, error: 'Format de réponse invalide' };
         } catch (error) {
-            console.error('Erreur analyse profil:', error);
+            logger.error('Failed to analyze public profile', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Erreur inconnue',

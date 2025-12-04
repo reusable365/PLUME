@@ -1,0 +1,78 @@
+/* Styles pour le tutoriel d'onboarding (React Joyride) */
+
+/* Overlay personnalisé avec effet de flou */
+.react-joyride__overlay {
+  backdrop-filter: blur(2px);
+}
+
+/* Tooltip Container */
+.plume-tooltip {
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  overflow: hidden;
+}
+
+/* Header du Tooltip */
+.plume-tooltip-header {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  color: #78350f; /* amber-900 */
+  border-bottom: 1px solid #fef3c7; /* amber-100 */
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Contenu du Tooltip */
+.plume-tooltip-content {
+  font-family: 'Inter', sans-serif;
+  color: #4b5563; /* gray-600 */
+  line-height: 1.6;
+}
+
+/* Boutons du Tooltip */
+.plume-tooltip-button-primary {
+  background-color: #b45309 !important; /* amber-700 */
+  color: white !important;
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 600 !important;
+  border-radius: 0.5rem !important;
+  padding: 0.5rem 1rem !important;
+  transition: all 0.2s ease;
+}
+
+.plume-tooltip-button-primary:hover {
+  background-color: #92400e !important; /* amber-800 */
+  transform: translateY(-1px);
+}
+
+.plume-tooltip-button-secondary {
+  color: #9ca3af !important; /* gray-400 */
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 500 !important;
+}
+
+.plume-tooltip-button-secondary:hover {
+  color: #6b7280 !important; /* gray-500 */
+}
+
+.plume-tooltip-button-skip {
+  color: #9ca3af !important; /* gray-400 */
+  font-style: italic;
+}
+
+/* Animation de pulsation pour l'élément ciblé (optionnel, si Joyride ne le fait pas déjà assez bien) */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(180, 83, 9, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(180, 83, 9, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(180, 83, 9, 0);
+  }
+}
+
+.joyride-beacon {
+  animation: pulse-ring 2s infinite;
+}

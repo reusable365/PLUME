@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { Entity, EntityType, EntityMetadata } from '../types';
+import { logger } from '../utils/logger';
 
 export const entityService = {
     /**
@@ -13,7 +14,7 @@ export const entityService = {
             .order('value', { ascending: true });
 
         if (error) {
-            console.error(`Error fetching entities of type ${type}:`, error);
+            logger.error(`Failed to fetch entities of type ${type}`, error);
             throw error;
         }
 
@@ -42,7 +43,7 @@ export const entityService = {
             .single();
 
         if (error) {
-            console.error('Error creating entity:', error);
+            logger.error('Failed to create entity', error);
             throw error;
         }
 
@@ -61,7 +62,7 @@ export const entityService = {
             .single();
 
         if (error) {
-            console.error('Error updating entity metadata:', error);
+            logger.error('Failed to update entity metadata', error);
             throw error;
         }
 
@@ -78,7 +79,7 @@ export const entityService = {
             .eq('id', id);
 
         if (error) {
-            console.error('Error deleting entity:', error);
+            logger.error('Failed to delete entity', error);
             throw error;
         }
     }

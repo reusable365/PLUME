@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Mic, Image as ImageIcon, Send, Sparkles, MapPin, Calendar, Info, X, Check } from 'lucide-react';
 import { IconFeather } from './Icons';
+import { supabase } from '../services/supabaseClient';
 
 interface GuestMemoryCardProps {
+    souvenirId?: string;
     authorName?: string;
     memoryTitle?: string;
     memoryContext?: {
@@ -11,9 +13,12 @@ interface GuestMemoryCardProps {
         tags: string[];
     };
     authorQuestion?: string;
+    isModal?: boolean;
+    onComplete?: () => void;
 }
 
 const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
+    souvenirId,
     authorName = "Stéphane",
     memoryTitle = "L'été en Bretagne",
     memoryContext = {
@@ -21,19 +26,45 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
         date: "Août 1998",
         tags: ["Plage", "Cerf-volant", "Orage"]
     },
-    authorQuestion = "Je me souviens qu'on a perdu les clés de la voiture... mais qui est allé chercher de l'aide au village ?"
+    authorQuestion = "Je me souviens qu'on a perdu les clés de la voiture... mais qui est allé chercher de l'aide au village ?",
+    isModal = false,
+    onComplete
 }) => {
     const [step, setStep] = useState<'contribute' | 'revealed'>('contribute');
     const [text, setText] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [showInfo, setShowInfo] = useState(false);
     const [photo, setPhoto] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!text && !photo && !isRecording) return;
-        // Simulate submission
+        setIsSubmitting(true);
+
+        if (souvenirId) {
+            try {
+                const { error } = await supabase.from('guest_contributions').insert({
+                    chapter_id: souvenirId,
+                    guest_name: 'Ami de ' + authorName, // Placeholder
+                    content: text || (isRecording ? "[Enregistrement Audio]" : "[Photo Partagée]"),
+                    contribution_type: isRecording ? 'audio' : photo ? 'photo' : 'text',
+                    status: 'pending'
+                });
+
+                if (error) throw error;
+            } catch (error) {
+                console.error("Error saving contribution:", error);
+                // In a real app, show error toast
+            }
+        }
+
+        // Simulate submission delay for UX
         setTimeout(() => {
             setStep('revealed');
+            setIsSubmitting(false);
+            if (onComplete) {
+                setTimeout(onComplete, 2000); // Wait a bit before closing
+            }
         }, 1000);
     };
 
@@ -42,7 +73,7 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
     };
 
     return (
-        <div className="min-h-screen bg-[#fcfbf9] font-sans text-slate-800 flex flex-col relative overflow-hidden">
+        <div className={`${isModal ? 'h-full bg-[#fcfbf9] rounded-3xl' : 'min-h-screen bg-[#fcfbf9]'} font-sans text-slate-800 flex flex-col relative overflow-hidden transition-all`}>
 
             {/* Background Texture/Gradient - Subtle for SaaS feel */}
             <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] opacity-50 pointer-events-none" />
@@ -163,8 +194,8 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
                                     onClick={handleSubmit}
                                     disabled={!text && !photo && !isRecording}
                                     className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium transition-all ${text || photo || isRecording
-                                            ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 hover:bg-amber-700 transform hover:-translate-y-0.5'
-                                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                        ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 hover:bg-amber-700 transform hover:-translate-y-0.5'
+                                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                         }`}
                                 >
                                     <span>Envoyer</span>

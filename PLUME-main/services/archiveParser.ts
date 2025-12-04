@@ -1,4 +1,5 @@
 import { DigitalMemory } from '../types';
+import { logger } from '../utils/logger';
 
 /**
  * Service pour parser les archives de réseaux sociaux
@@ -48,11 +49,11 @@ export class ArchiveParser {
 
             // Simulation: on retourne des données mockées
             // TODO: Implémenter le vrai parsing avec JSZip
-            console.log('Parsing Instagram archive:', file.name);
+            logger.debug('Parsing Instagram archive', { fileName: file.name });
 
             return memories;
         } catch (error) {
-            console.error('Error parsing Instagram archive:', error);
+            logger.error('Failed to parse Instagram archive', error);
             throw new Error('Impossible de lire l\'archive Instagram');
         }
     }
@@ -88,7 +89,7 @@ export class ArchiveParser {
 
             return memories;
         } catch (error) {
-            console.error('Error parsing Facebook archive:', error);
+            logger.error('Failed to parse Facebook archive', error);
             throw new Error('Impossible de lire l\'archive Facebook');
         }
     }
@@ -123,7 +124,7 @@ export class ArchiveParser {
 
             return memories;
         } catch (error) {
-            console.error('Error parsing LinkedIn archive:', error);
+            logger.error('Failed to parse LinkedIn archive', error);
             throw new Error('Impossible de lire l\'archive LinkedIn');
         }
     }

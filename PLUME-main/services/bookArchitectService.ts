@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from './supabaseClient';
 import { BookStructure, BookStructureMode, BookChapter, User } from '../types';
+import { logger } from '../utils/logger';
 
 /**
  * Book Architect Service
@@ -31,7 +32,7 @@ const fetchUserMemories = async (userId: string): Promise<Memory[]> => {
         .order('created_at', { ascending: true });
 
     if (error) {
-        console.error('Error fetching memories:', error);
+        logger.error('Failed to fetch user memories', error);
         throw error;
     }
 
@@ -51,11 +52,11 @@ export const generateChronologicalStructure = async (
         throw new Error('Aucun souvenir disponible pour générer une structure');
     }
 
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
         throw new Error("API Key is missing");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     // Prepare context for AI
     const memoriesSummary = memories.map(m => ({
@@ -144,7 +145,7 @@ Réponds UNIQUEMENT avec le JSON.
         return structure;
 
     } catch (error) {
-        console.error('Error generating chronological structure:', error);
+        logger.error('Failed to generate chronological book structure', error);
         throw error;
     }
 };
@@ -162,11 +163,11 @@ export const generateThematicStructure = async (
         throw new Error('Aucun souvenir disponible pour générer une structure');
     }
 
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
         throw new Error("API Key is missing");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const memoriesSummary = memories.map(m => ({
         id: m.id,
@@ -251,7 +252,7 @@ Réponds UNIQUEMENT avec le JSON.
         return structure;
 
     } catch (error) {
-        console.error('Error generating thematic structure:', error);
+        logger.error('Failed to generate thematic book structure', error);
         throw error;
     }
 };
@@ -270,11 +271,11 @@ export const generateExpertStructure = async (
         throw new Error('Aucun souvenir disponible pour générer une structure');
     }
 
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
         throw new Error("API Key is missing");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const memoriesSummary = memories.map(m => ({
         id: m.id,
@@ -371,7 +372,7 @@ Réponds UNIQUEMENT avec le JSON.
         return structure;
 
     } catch (error) {
-        console.error('Error generating expert structure:', error);
+        logger.error('Failed to generate expert book structure', error);
         throw error;
     }
 };

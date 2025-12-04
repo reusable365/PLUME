@@ -35,12 +35,18 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
           <p className="text-xl md:text-2xl text-amber-100 font-serif italic max-w-2xl mb-10 leading-relaxed">
             "Immortalisez votre existence. Transformez vos souvenirs épars en une autobiographie d'exception grâce à l'intelligence artificielle."
           </p>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
             <button
               onClick={() => openAuth('signup')}
               className="px-10 py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-full font-semibold text-lg shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
             >
               Commencer mon Récit
+            </button>
+            <button
+              onClick={() => openAuth('login')}
+              className="px-10 py-4 bg-white/10 hover:bg-white/20 text-white rounded-full font-semibold text-lg border-2 border-white/30 hover:border-white/50 backdrop-blur-sm transition-all transform hover:-translate-y-1"
+            >
+              Ouvrir mon Livre
             </button>
           </div>
           <p className="mt-4 text-sm text-white/60">Déjà 12,000 pages écrites aujourd'hui.</p>

@@ -38,6 +38,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onComplete }) => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!firstName.trim() || !birthDate) {
+            alert("Veuillez remplir votre prénom et votre date de naissance.");
+            return;
+        }
+
         setLoading(true);
 
         try {
@@ -51,11 +57,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onComplete }) => {
                 last_name: lastName,
                 birth_date: birthDate,
                 photos: allPhotos,
-                updated_at: new Date().toISOString(), // Toujours envoyer un ISO string
+                updated_at: new Date().toISOString(),
             };
 
             const { error } = await supabase.from('profiles').upsert(updates);
-            if (error) throw error; // L'erreur sera gérée par le catch
+            if (error) throw error;
 
             const updatedUser: User = {
                 ...user,
@@ -70,7 +76,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onComplete }) => {
 
         } catch (error) {
             console.error('Error updating profile:', error);
-            // Afficher un toast d'erreur
+            alert("Erreur lors de la sauvegarde du profil. Veuillez réessayer.");
         } finally {
             setLoading(false);
         }

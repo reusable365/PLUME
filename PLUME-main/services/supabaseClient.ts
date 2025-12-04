@@ -1,13 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://tuezgyggesrebzfxeufr.supabase.co';
-
-// Utilisation de la clé fournie directement comme valeur par défaut
-const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1ZXpneWdnZXNyZWJ6ZnhldWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMTcxODcsImV4cCI6MjA3OTU5MzE4N30.cNUF9zyZLNMwLxp3XH-fD74pME5un656pj331L89rhk';
+// Configuration Supabase avec variables d'environnement Vite
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
 const getSupabaseKey = () => {
-    // 1. Variable d'environnement (Priorité haute)
-    const envKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    // 1. Variable d'environnement Vite (Priorité haute)
+    const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (envKey) return envKey;
 
     // 2. LocalStorage (Si l'utilisateur a surchargé la clé via l'UI)
@@ -16,9 +14,22 @@ const getSupabaseKey = () => {
         if (stored) return stored;
     }
 
-    // 3. Clé par défaut (Celle fournie dans le screenshot)
-    return defaultKey;
+    // 3. Erreur stricte si aucune clé n'est trouvée
+    throw new Error(
+        '🔴 VITE_SUPABASE_ANON_KEY manquante.\n\n' +
+        'Créez un fichier .env.local à la racine du projet avec :\n' +
+        'VITE_SUPABASE_URL=https://your-project.supabase.co\n' +
+        'VITE_SUPABASE_ANON_KEY=your_anon_key_here\n' +
+        'GEMINI_API_KEY=your_gemini_api_key_here'
+    );
 };
+
+// Validation stricte de l'URL
+if (!supabaseUrl) {
+    throw new Error(
+        '🔴 VITE_SUPABASE_URL manquante. Vérifiez votre fichier .env.local'
+    );
+}
 
 const supabaseKey = getSupabaseKey();
 
