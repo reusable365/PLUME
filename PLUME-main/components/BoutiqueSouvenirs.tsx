@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { IconSearch, IconFilter, IconClock, IconUser, IconTag, IconChevronDown, IconX, IconFeather, IconBook, IconCamera, IconTrash, IconShare2, IconLink, IconMail, IconArrowUp } from './Icons';
 import { supabase } from '../services/supabaseClient';
 import { TagIntelligenceService, TagCluster } from '../services/tagIntelligenceService';
+import { LifeInsightsService, LifeInsight } from '../services/lifeInsightsService';
+import { LifeInsights } from './LifeInsights';
 
 interface BoutiqueSouvenirsProps {
     userId: string;
@@ -60,6 +62,11 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
     const [draggedSouvenir, setDraggedSouvenir] = useState<string | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
+    // Life Insights State (NEW)
+    const [insights, setInsights] = useState<LifeInsight[]>([]);
+    const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+    const [insightFilter, setInsightFilter] = useState<LifeInsight | null>(null);
+
     useEffect(() => {
         loadSouvenirs();
     }, [userId]);
@@ -70,7 +77,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         } else {
             applyPhotoFilters();
         }
-    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace, youthFilter, souvenirs, photos, viewMode]);
+    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace, youthFilter, insightFilter, souvenirs, photos, viewMode]);
 
     const loadSouvenirs = async () => {
         setIsLoading(true);
@@ -107,6 +114,9 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                 }));
 
                 setSouvenirs(processedSouvenirs);
+
+                // Generate Life Insights (NEW)
+                generateLifeInsights(processedSouvenirs);
 
                 // Extract unique values for filters
                 if (entities) {
@@ -165,6 +175,33 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
             console.error('Error loading souvenirs:', error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Generate Life Insights (NEW)
+    const generateLifeInsights = async (souvenirsList: Souvenir[]) => {
+        setIsLoadingInsights(true);
+        try {
+            const generatedInsights = await LifeInsightsService.generateInsights(souvenirsList);
+            setInsights(generatedInsights);
+        } catch (error) {
+            console.error('Error generating insights:', error);
+        } finally {
+            setIsLoadingInsights(false);
+        }
+    };
+
+    // Handle insight click to filter souvenirs (NEW)
+    const handleInsightClick = (insight: LifeInsight) => {
+        setInsightFilter(insight);
+        // Scroll to souvenirs
+        window.scrollTo({ top: 600, behavior: 'smooth' });
+    };
+
+    // Refresh insights (NEW)
+    const handleRefreshInsights = () => {
+        if (souvenirs.length > 0) {
+            generateLifeInsights(souvenirs);
         }
     };
 
@@ -250,6 +287,11 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
 
     const applyFilters = () => {
         let filtered = [...souvenirs];
+
+        // Insight filter (NEW) - Priority filter
+        if (insightFilter) {
+            filtered = filtered.filter(s => insightFilter.relatedSouvenirIds.includes(s.id));
+        }
 
         // Search filter
         if (searchQuery.trim()) {
@@ -566,6 +608,37 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                         </button>
                     </div>
                 </div>
+
+                {/* Life Insights Section (NEW) */}
+                {viewMode === 'stories' && (
+                    <LifeInsights
+                        insights={insights}
+                        isLoading={isLoadingInsights}
+                        onRefresh={handleRefreshInsights}
+                        onInsightClick={handleInsightClick}
+                        totalSouvenirs={souvenirs.length}
+                    />
+                )}
+
+                {/* Active Insight Filter Badge (NEW) */}
+                {insightFilter && (
+                    <div className="mb-6 bg-purple-50 border border-purple-200 rounded-2xl p-4 flex items-center justify-between animate-fade-in">
+                        <div className="flex items-center gap-3">
+                            <span className="text-2xl">{insightFilter.type === 'emotional' ? '❤️' : insightFilter.type === 'temporal' ? '⏰' : insightFilter.type === 'relational' ? '👥' : '🗺️'}</span>
+                            <div>
+                                <p className="font-bold text-purple-900">{insightFilter.title}</p>
+                                <p className="text-sm text-purple-700">{insightFilter.relatedSouvenirIds.length} souvenirs filtrés</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setInsightFilter(null)}
+                            className="px-4 py-2 bg-white text-purple-700 rounded-lg font-medium hover:bg-purple-100 transition-colors flex items-center gap-2"
+                        >
+                            <IconX className="w-4 h-4" />
+                            Retirer le filtre
+                        </button>
+                    </div>
+                )}
 
                 {/* Search Bar */}
                 <div className="mb-6 bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-ink-100">
