@@ -68,6 +68,7 @@ const App: React.FC = () => {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showPhotoCatalyst, setShowPhotoCatalyst] = useState(false);
     const [showValidationModal, setShowValidationModal] = useState(false);
+    const [suggestedTitle, setSuggestedTitle] = useState('');
     const [showSupport, setShowSupport] = useState(false);
     const [timeContext, setTimeContext] = useState<string | null>(null);
     const [showTimeContext, setShowTimeContext] = useState(false);
@@ -674,6 +675,7 @@ const App: React.FC = () => {
             setDraftContent('');
             setWorkspaceId(null);
             setShowValidationModal(false);
+            setSuggestedTitle(''); // Reset suggested title
 
             // Reset Chat
             const welcomeMsg = {
@@ -704,6 +706,28 @@ const App: React.FC = () => {
 
     const handleInsertDraft = async () => {
         if (!session?.user || !draftContent.trim()) return;
+
+        // Generate title automatically
+        setIsLoading(true);
+        try {
+            const { generateSouvenirTitle } = await import('./services/geminiService');
+            const autoTitle = await generateSouvenirTitle(draftContent, {
+                dates: Array.from(state.aggregatedData.dates),
+                locations: Array.from(state.aggregatedData.locations),
+                people: Array.from(state.aggregatedData.characters),
+                tags: Array.from(state.aggregatedData.tags)
+            });
+            setSuggestedTitle(autoTitle);
+        } catch (error) {
+            console.error('Error generating title:', error);
+            // Fallback intelligent : utiliser la première phrase du contenu
+            const firstSentence = draftContent.split(/[.!?]/)[0].trim();
+            const fallbackTitle = firstSentence.substring(0, 50) || 'Mon Souvenir';
+            setSuggestedTitle(fallbackTitle);
+        } finally {
+            setIsLoading(false);
+        }
+
         setShowValidationModal(true);
     };
 
@@ -1098,12 +1122,36 @@ Date: ${dateStr}.
             {showValidationModal && (
                 <ValidationModal
                     isOpen={showValidationModal}
-                    onClose={() => setShowValidationModal(false)}
+                    onClose={() => { setShowValidationModal(false); setSuggestedTitle(''); }}
                     onConfirm={handleValidationConfirm}
                     initialData={{
-                        title: '', // Will be generated or filled
+                        title: suggestedTitle, // Auto-generated title
                         content: draftContent,
-                        maturityScore: { score: 80, status: 'germination', feedback: [] }, // Mock or calc
+                        maturityScore: (() => {
+                            // Calcul du vrai score de maturité
+                            const dates = aggregatedData.dates.size;
+                            const characters = aggregatedData.characters.size;
+                            const locations = aggregatedData.locations.size;
+                            const userMessages = state.messages.filter(m => m.role === 'user' && !m.isDivider).length;
+                            const wordCount = draftContent.trim().split(/\s+/).filter(w => w.length > 0).length;
+
+                            let metadata = 0;
+                            if (dates > 0) metadata += 20;
+                            if (characters > 0) metadata += 20;
+                            if (locations > 0) metadata += 20;
+
+                            let volume = 0;
+                            if (userMessages >= 5 || wordCount >= 300) volume = 20;
+                            else if (userMessages >= 3 || wordCount >= 150) volume = 10;
+
+                            const emotionKeywords = /joie|peur|nostalgie|odeur|couleur|souvenir|émotion|sentiment|ressent|heureux|triste|boulevers|touch|ému/i;
+                            const emotion = emotionKeywords.test(draftContent) ? 20 : 0;
+
+                            const total = metadata + volume + emotion;
+                            const status = total >= 80 ? 'pret' : total >= 40 ? 'en_cours' : 'germination';
+
+                            return { score: total, status, feedback: [] };
+                        })(),
                         dates: Array.from(state.aggregatedData.dates),
                         locations: Array.from(state.aggregatedData.locations),
                         people: Array.from(state.aggregatedData.characters),
