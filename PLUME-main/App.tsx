@@ -731,6 +731,7 @@ const App: React.FC = () => {
         setShowValidationModal(true);
     };
 
+
     const handleSouvenirSelect = async (souvenirId: string) => {
         // Fetch from chapters table (since BoutiqueSouvenirs now lists chapters)
         const { data, error } = await supabase.from('chapters').select('*').eq('id', souvenirId).single();
@@ -1260,6 +1261,7 @@ Date: ${dateStr}.
                             }
                         }}
                         onSave={handleInsertDraft}
+                        onOpenPhotoCatalyst={() => setShowPhotoCatalyst(true)}
                     />
                 )}
                 {currentView === 'dashboard' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><PlumeDashboard userId={session.user.id} userProfile={userProfile} messages={state.messages} onGapClick={handleGapAction} /></div>)}

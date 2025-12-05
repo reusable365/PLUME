@@ -34,6 +34,7 @@ interface StudioViewProps {
     onQuestionClick?: (messageId: string, questionIndex: number) => Promise<void>;
     onInsertDivider: (label?: string) => Promise<void>;
     onSave?: () => void;
+    onOpenPhotoCatalyst?: () => void;
 }
 
 export const StudioView: React.FC<StudioViewProps> = ({
@@ -62,7 +63,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
     onSendMessage,
     onQuestionClick,
     onInsertDivider,
-    onSave
+    onSave,
+    onOpenPhotoCatalyst
 }) => {
     const [showLeftPanel, setShowLeftPanel] = useState(true);
     const [input, setInput] = useState('');
@@ -181,7 +183,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
                             {/* Left Actions */}
                             <div className="flex gap-1 md:gap-2">
                                 <button
-                                    onClick={() => {/* TODO: Open photo catalyst */ }}
+                                    onClick={() => onOpenPhotoCatalyst?.()}
                                     disabled={isSending}
                                     className="p-2 md:p-2.5 rounded-lg bg-ink-50 text-ink-600 hover:bg-accent/10 hover:text-accent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Ajouter une photo"
