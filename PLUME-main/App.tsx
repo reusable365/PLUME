@@ -305,7 +305,7 @@ const App: React.FC = () => {
         if (error) console.error("Error saving entity:", error);
     };
 
-    const triggerSend = useCallback(async (text: string, imageUrl?: string) => {
+    const triggerSend = useCallback(async (text: string, imageUrl?: string, hiddenText?: string) => {
         if (!text.trim() || isLoading || !session?.user) return;
         soundManager.playKeystroke();
         const userMsg: ChatMessage = { id: uuidv4(), role: 'user', content: text, timestamp: Date.now(), imageUrl };
@@ -313,7 +313,8 @@ const App: React.FC = () => {
         setState(prev => ({ ...prev, messages: newMessages }));
         setInput(''); setIsLoading(true);
         try {
-            await supabase.from('messages').insert({ user_id: session.user.id, role: 'user', content: { text: text, isSynthesized: false }, image_url: imageUrl }); // Note: Ensure DB has image_url column or store in content JSON
+            // Save visible text to DB
+            await supabase.from('messages').insert({ user_id: session.user.id, role: 'user', content: { text: text, isSynthesized: false }, image_url: imageUrl });
 
             const lastDividerIndex = newMessages.map(m => m.isDivider).lastIndexOf(true);
             const relevantMessages = lastDividerIndex > -1 ? newMessages.slice(lastDividerIndex + 1) : newMessages;
@@ -330,7 +331,10 @@ const App: React.FC = () => {
             const lastDraftedMsg = [...state.messages].reverse().find(m => m.role === 'assistant' && (m.content as PlumeResponse).isDrafted === true);
             let lastValidNarrative = '';
             if (lastDraftedMsg) lastValidNarrative = (lastDraftedMsg.content as PlumeResponse).narrative;
-            const response = await sendMessageToPlume(text, tone, length, fidelity, apiHistory, lastValidNarrative, userProfile);
+
+            // Use hiddenText if provided, otherwise text
+            const textToSend = hiddenText || text;
+            const response = await sendMessageToPlume(textToSend, tone, length, fidelity, apiHistory, lastValidNarrative, userProfile);
             const aiMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: response, timestamp: Date.now() };
             await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: response });
 
@@ -977,7 +981,9 @@ const App: React.FC = () => {
     const handlePhotoCatalystComplete = (result: PhotoCatalystResult) => {
         setShowPhotoCatalyst(false);
         // Automatically send the generated prompt to start the conversation
-        triggerSend(result.generatedPrompt, result.photo.url);
+        // Display a clean message to the user, send the full prompt to AI
+        const displayMessage = `Je souhaite explorer ce souvenir sous l'angle : ${result.selectedAngle === 'emotion' ? 'ÉMOTION' : result.selectedAngle === 'action' ? 'ACTION' : 'SENSORIEL'}.`;
+        triggerSend(displayMessage, result.photo.url, result.generatedPrompt);
         showToast("Photo analysée ! Création du souvenir en cours...", 'success');
     };
 

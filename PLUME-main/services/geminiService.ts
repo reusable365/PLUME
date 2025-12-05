@@ -224,7 +224,7 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
   }
 
   return {
-    narrative: narrativeMatch ? narrativeMatch[1].trim() : text,
+    narrative: narrativeMatch ? narrativeMatch[1].trim() : text.replace(/\[DATA_EXTRACTION\][\s\S]*?\[\/END_DATA_EXTRACTION\]/g, '').replace(/\[QUESTIONS_CHOIX\][\s\S]*?\[\/QUESTIONS_CHOIX\]/g, '').trim(),
     data: parsedData,
     suggestion: parsedSuggestion,
     questions: parsedQuestions
