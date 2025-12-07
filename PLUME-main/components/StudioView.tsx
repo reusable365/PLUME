@@ -18,6 +18,7 @@ interface StudioViewProps {
     ideas: Idea[];
     onAddIdea: (title: string, content: string, tag: string) => void;
     onDeleteIdea: (id: string) => void;
+    onConvertIdea: (id: string) => void;
     draftContent: string;
     setDraftContent: (content: string) => void;
     onInsertDraft: () => void;
@@ -30,9 +31,11 @@ interface StudioViewProps {
     // Chat Session Props
     sessionMessages: ChatMessage[];
     isSending: boolean;
-    onSendMessage: (text: string) => Promise<any>;
+    onSendMessage: (text: string, isSacred?: boolean) => Promise<any>;
     onQuestionClick?: (messageId: string, questionIndex: number) => Promise<void>;
     onInsertDivider: (label?: string) => Promise<void>;
+    onUndo?: () => void;
+    canUndo?: boolean;
     onSave?: () => void;
     onOpenPhotoCatalyst?: () => void;
 }
@@ -49,6 +52,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
     ideas,
     onAddIdea,
     onDeleteIdea,
+    onConvertIdea,
     draftContent,
     setDraftContent,
     onInsertDraft,
@@ -63,11 +67,14 @@ export const StudioView: React.FC<StudioViewProps> = ({
     onSendMessage,
     onQuestionClick,
     onInsertDivider,
+    onUndo,
+    canUndo,
     onSave,
     onOpenPhotoCatalyst
 }) => {
     const [showLeftPanel, setShowLeftPanel] = useState(true);
     const [input, setInput] = useState('');
+    const [isSacred, setIsSacred] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -84,15 +91,21 @@ export const StudioView: React.FC<StudioViewProps> = ({
         const text = input;
         setInput('');
 
-        const result = await onSendMessage(text);
+        // Pass isSacred flag
+        const result = await onSendMessage(text, isSacred);
         if (result) {
             // Trigger auto-compile with the updated history
             autoCompile([...sessionMessages, result.userMsg, result.aiMsg]);
         }
+
+        // Note: isSacred intentionally NOT reset here to keep mode active
     };
 
     const handleIdeaClick = async (idea: Idea) => {
         await onInsertDivider();
+        // Consuming the idea: convert it (mark as used) so it disappears from chest but stays in history
+        onConvertIdea(idea.id);
+
         const autoPrompt = `Je sélectionne cette idée de mon coffre: "${idea.title || 'Note'}".Contenu : "${idea.content}".Analyse et guide-moi.`;
         const result = await onSendMessage(autoPrompt);
         if (result) {
@@ -116,6 +129,12 @@ export const StudioView: React.FC<StudioViewProps> = ({
                 onToneChange={setTone}
                 onLengthChange={setLength}
                 onFidelityChange={setFidelity}
+                // Mode Verbatim Toggle
+                onDataChange={(key, value) => {
+                    if (key === 'verbatim' && value === true) {
+                        setFidelity(Fidelity.HAUTE);
+                    }
+                }}
             />
 
             {/* CENTER PANEL - Chat */}
@@ -134,7 +153,6 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                 message={msg}
                                 onSaveIdea={(title, content, tag) => onAddIdea(title, content, tag)}
                                 onQuestionClick={async (messageId, questionIndex) => {
-                                    // Use the parent's handleQuestionClick if provided
                                     if (onQuestionClick) {
                                         await onQuestionClick(messageId, questionIndex);
                                     }
@@ -143,8 +161,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                     const newContent = draftContent ? `${draftContent}\n\n${text}` : text;
                                     setDraftContent(newContent);
                                 }}
-                                onDeleteMessage={() => {/* TODO: implement delete */ }}
-                                onInitiateRegenerate={() => {/* TODO: implement regenerate */ }}
+                                onDeleteMessage={() => { }}
+                                onInitiateRegenerate={() => { }}
                                 isLastAssistantMessage={msg.role === 'assistant' && index === sessionMessages.length - 1}
                             />
                         </div>
@@ -193,6 +211,17 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                                     </svg>
                                 </button>
+
+                                {/* Sacred Mode Button (Verbatim) */}
+                                <button
+                                    onClick={() => setIsSacred(!isSacred)}
+                                    className={`p-2 md:p-2.5 rounded-lg transition-all ${isSacred ? 'bg-amber-100 text-amber-700 border border-amber-300 shadow-sm' : 'bg-ink-50 text-ink-600 hover:bg-accent/10 hover:text-accent'}`}
+                                    title="Mode Import (Texte Sacré) : Votre texte sera conservé tel quel"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.858.571-4.187m9-3.957E12.21 12.21 0 0012 3a12.21 12.21 0 00-6.666 1.98" />
+                                    </svg>
+                                </button>
                             </div>
 
                             {/* Right Actions */}
@@ -224,14 +253,18 @@ export const StudioView: React.FC<StudioViewProps> = ({
             </div>
 
             {/* RIGHT PANEL - Compilation */}
-            <CompilationPanel
-                content={compiledText}
-                isLoading={isCompiling}
-                onEdit={onCompilationEdit}
-                onRefresh={onCompilationRefresh}
-                maturityScore={maturityScore}
-                onSave={onSave}
-            />
+            <div className="w-1/3 bg-white border-l border-ink-100 hidden lg:block overflow-hidden relative">
+                <CompilationPanel
+                    content={compiledText}
+                    isLoading={isCompiling}
+                    onRefresh={onCompilationRefresh}
+                    onEdit={onCompilationEdit}
+                    maturityScore={maturityScore}
+                    onSave={onSave}
+                    onUndo={onUndo}
+                    canUndo={canUndo}
+                />
+            </div>
         </div>
     );
 };

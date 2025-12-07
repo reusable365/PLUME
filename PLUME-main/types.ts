@@ -45,11 +45,25 @@ export interface DigitalMemory {
 }
 
 
+export enum Emotion {
+  JOIE = 'Joie',
+  NOSTALGIE = 'Nostalgie',
+  MELANCOLIE = 'Mélancolie',
+  GRATITUDE = 'Gratitude',
+  FIERTE = 'Fierté',
+  APAISEMENT = 'Apaisement',
+  TRISTESSE = 'Tristesse',
+  EXCITATION = 'Excitation',
+  AMOUR = 'Amour',
+  NEUTRE = 'Neutre'
+}
+
 export interface ExtractedData {
   dates_chronologie: string[];
   lieux_cites: string[];
   personnages_cites: string[];
   tags_suggeres: string[];
+  emotion?: Emotion; // Émotion dominante détectée
 }
 
 export interface QuestionOption {
@@ -71,6 +85,8 @@ export interface PlumeResponse {
   isDrafted?: boolean;
   isSynthesized?: boolean;
   isSynthesisResult?: boolean;
+  conversation?: string; // Message conversationnel (Chat)
+  thinking?: string;     // Raisonnement IA (Debug)
 }
 
 export interface ChatMessage {
@@ -89,6 +105,8 @@ export interface Idea {
   content: string;
   tags?: string[];
   createdAt: number;
+  status?: 'active' | 'converted';
+  souvenirId?: string;
 }
 
 export interface AppState {
@@ -157,6 +175,7 @@ export interface User {
   firstName?: string;
   lastName?: string;
   birthDate?: string;
+  plan?: string;
   photos?: Photo[];
 }
 
@@ -247,4 +266,18 @@ export interface GuestContext {
     tags: string[];
   };
   authorQuestion: string;
+}
+
+export interface Souvenir {
+  id: string;
+  title: string;
+  content: string;
+  narrative?: string;
+  created_at: string;
+  dates?: string[];
+  characters?: string[];
+  tags?: string[];
+  status?: string;
+  emotion?: string;
+  imageUrl?: string;
 }

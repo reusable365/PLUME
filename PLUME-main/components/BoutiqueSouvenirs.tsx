@@ -22,7 +22,8 @@ interface Souvenir {
     tags?: string[];
     isDrafted?: boolean;
     isSynthesized?: boolean;
-    status?: 'draft' | 'published'; // Add status field
+    status?: 'draft' | 'published';
+    emotion?: string; // Add emotion field
 }
 
 const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouvenirSelect, onSouvenirShare }) => {
@@ -42,15 +43,17 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
     const [selectedCharacter, setSelectedCharacter] = useState<string>('all');
     const [selectedTag, setSelectedTag] = useState<string>('all');
     const [selectedStatus, setSelectedStatus] = useState<string>('all');
-    const [selectedPlace, setSelectedPlace] = useState<string>('all'); // NEW
-    const [youthFilter, setYouthFilter] = useState(false); // NEW
+    const [selectedPlace, setSelectedPlace] = useState<string>('all');
+    const [youthFilter, setYouthFilter] = useState(false);
+    const [selectedEmotion, setSelectedEmotion] = useState<string>('all'); // NEW EMOTION FILTER
 
     // Available filter options
     const [decades, setDecades] = useState<string[]>([]);
     const [characters, setCharacters] = useState<string[]>([]);
     const [tags, setTags] = useState<string[]>([]);
     const [tagClusters, setTagClusters] = useState<TagCluster[]>([]);
-    const [places, setPlaces] = useState<string[]>([]); // NEW
+    const [places, setPlaces] = useState<string[]>([]);
+    const [emotions, setEmotions] = useState<string[]>([]); // NEW EMOTION LIST
 
     // Delete Confirmation State
     const [souvenirToDelete, setSouvenirToDelete] = useState<string | null>(null);
@@ -77,7 +80,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         } else {
             applyPhotoFilters();
         }
-    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace, youthFilter, insightFilter, souvenirs, photos, viewMode]);
+    }, [searchQuery, selectedDecade, selectedCharacter, selectedTag, selectedStatus, selectedPlace, youthFilter, insightFilter, selectedEmotion, souvenirs, photos, viewMode]);
 
     const loadSouvenirs = async () => {
         setIsLoading(true);
@@ -110,7 +113,8 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     tags: c.metadata?.tags || [],
                     isDrafted: c.status === 'published', // true if published (gravé)
                     isSynthesized: false,
-                    status: c.status // Add status field for badge display
+                    status: c.status,
+                    emotion: c.metadata?.emotion || 'Neutre' // Extract emotion
                 }));
 
                 setSouvenirs(processedSouvenirs);
@@ -158,6 +162,10 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     }
 
                     setDecades([...new Set(extractedDecades)].sort());
+
+                    // Extract emotions from processed souvenirs
+                    const uniqueEmotions = [...new Set(processedSouvenirs.map(s => s.emotion).filter(e => e && e !== 'Neutre'))] as string[];
+                    setEmotions(uniqueEmotions.sort());
                 }
             }
 
@@ -291,6 +299,11 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
         // Insight filter (NEW) - Priority filter
         if (insightFilter) {
             filtered = filtered.filter(s => insightFilter.relatedSouvenirIds.includes(s.id));
+        }
+
+        // Emotion filter (NEW)
+        if (selectedEmotion !== 'all') {
+            filtered = filtered.filter(s => s.emotion === selectedEmotion);
         }
 
         // Search filter
@@ -728,6 +741,24 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                                     </select>
                                 </div>
 
+                                {/* Emotion Filter (NEW) */}
+                                <div>
+                                    <label className="block text-sm font-bold text-ink-700 mb-2">
+                                        <span className="inline-block mr-1">❤️</span>
+                                        Émotion
+                                    </label>
+                                    <select
+                                        value={selectedEmotion}
+                                        onChange={(e) => setSelectedEmotion(e.target.value)}
+                                        className="w-full p-3 bg-white border border-ink-200 rounded-xl text-ink-800 focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none"
+                                    >
+                                        <option value="all">Toutes les émotions</option>
+                                        {emotions.map(e => (
+                                            <option key={e} value={e}>{e}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 {/* Tag Filter */}
                                 <div>
                                     <label className="block text-sm font-bold text-ink-700 mb-2">
@@ -830,141 +861,147 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                 </div>
 
                 {/* Stories Grid */}
-                {viewMode === 'stories' && (
-                    <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {filteredSouvenirs.map((souvenir) => (
-                                <div
-                                    key={souvenir.id}
-                                    className="bg-white/80 backdrop-blur-md rounded-3xl p-6 shadow-xl border border-white/50 hover:shadow-2xl hover:scale-[1.03] hover:border-accent/30 transition-all duration-300 cursor-pointer group relative overflow-hidden"
-                                    onClick={() => onSouvenirSelect?.(souvenir.id)}
-                                >
-                                    {/* Action Buttons (Visible on Hover) */}
-                                    <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleShareClick(souvenir);
-                                            }}
-                                            className="p-2 bg-white text-accent hover:text-white hover:bg-accent rounded-full shadow-sm transition-all"
-                                            title="Partager ce souvenir"
-                                        >
-                                            <IconShare2 className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleMoveSouvenir(souvenir.id, 'up');
-                                            }}
-                                            className="p-2 bg-white text-ink-600 hover:text-accent hover:bg-accent/10 rounded-full shadow-sm transition-all"
-                                            title="Déplacer vers le haut"
-                                        >
-                                            <IconArrowUp className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSouvenirToDelete(souvenir.id);
-                                            }}
-                                            className="p-2 bg-white text-red-400 hover:text-red-600 hover:bg-red-50 rounded-full shadow-sm transition-all"
-                                            title="Supprimer ce souvenir"
-                                        >
-                                            <IconTrash className="w-4 h-4" />
-                                        </button>
-                                    </div>
+                {
+                    viewMode === 'stories' && (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {filteredSouvenirs.map((souvenir) => (
+                                    <div
+                                        key={souvenir.id}
+                                        className="bg-white/80 backdrop-blur-md rounded-3xl p-6 shadow-xl border border-white/50 hover:shadow-2xl hover:scale-[1.03] hover:border-accent/30 transition-all duration-300 cursor-pointer group relative overflow-hidden"
+                                        onClick={() => onSouvenirSelect?.(souvenir.id)}
+                                    >
+                                        {/* Action Buttons (Visible on Hover) */}
+                                        <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleShareClick(souvenir);
+                                                }}
+                                                className="p-2 bg-white text-accent hover:text-white hover:bg-accent rounded-full shadow-sm transition-all"
+                                                title="Partager ce souvenir"
+                                            >
+                                                <IconShare2 className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleMoveSouvenir(souvenir.id, 'up');
+                                                }}
+                                                className="p-2 bg-white text-ink-600 hover:text-accent hover:bg-accent/10 rounded-full shadow-sm transition-all"
+                                                title="Déplacer vers le haut"
+                                            >
+                                                <IconArrowUp className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSouvenirToDelete(souvenir.id);
+                                                }}
+                                                className="p-2 bg-white text-red-400 hover:text-red-600 hover:bg-red-50 rounded-full shadow-sm transition-all"
+                                                title="Supprimer ce souvenir"
+                                            >
+                                                <IconTrash className="w-4 h-4" />
+                                            </button>
+                                        </div>
 
-                                    {/* Status Badge */}
-                                    <div className="flex items-center gap-2 mb-3">
-                                        {souvenir.status === 'draft' && (
-                                            <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
-                                                📝 Brouillon
-                                            </span>
-                                        )}
-                                        {souvenir.status === 'published' && (
-                                            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">
-                                                ✅ Gravé
-                                            </span>
-                                        )}
-                                        {souvenir.isSynthesized && (
-                                            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
-                                                Synthétisé
-                                            </span>
-                                        )}
-                                    </div>
+                                        {/* Status Badge */}
+                                        <div className="flex items-center gap-2 mb-3">
+                                            {souvenir.status === 'draft' && (
+                                                <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
+                                                    📝 Brouillon
+                                                </span>
+                                            )}
+                                            {souvenir.status === 'published' && (
+                                                <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">
+                                                    ✅ Gravé
+                                                </span>
+                                            )}
+                                            {souvenir.isSynthesized && (
+                                                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
+                                                    Synthétisé
+                                                </span>
+                                            )}
+                                            {souvenir.emotion && souvenir.emotion !== 'Neutre' && (
+                                                <span className="px-3 py-1 bg-pink-100 text-pink-700 rounded-full text-xs font-bold">
+                                                    ❤️ {souvenir.emotion}
+                                                </span>
+                                            )}
+                                        </div>
 
-                                    {/* Content Preview */}
-                                    {souvenir.title && (
-                                        <h4 className="font-bold text-lg text-ink-900 mb-2">{souvenir.title}</h4>
-                                    )}
-                                    <p className="text-ink-800 font-serif leading-relaxed mb-4 line-clamp-4">
-                                        {souvenir.narrative || souvenir.content}
-                                    </p>
+                                        {/* Content Preview */}
+                                        {souvenir.title && (
+                                            <h4 className="font-bold text-lg text-ink-900 mb-2">{souvenir.title}</h4>
+                                        )}
+                                        <p className="text-ink-800 font-serif leading-relaxed mb-4 line-clamp-4">
+                                            {souvenir.narrative || souvenir.content}
+                                        </p>
 
-                                    {/* Metadata */}
-                                    <div className="space-y-2 text-sm">
-                                        {souvenir.characters && souvenir.characters.length > 0 && (
-                                            <div className="flex items-start gap-2">
-                                                <IconUser className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
-                                                <div className="flex flex-wrap gap-1">
-                                                    {souvenir.characters.slice(0, 3).map((char, i) => (
-                                                        <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                                                            {char}
-                                                        </span>
-                                                    ))}
-                                                    {souvenir.characters.length > 3 && (
-                                                        <span className="px-2 py-0.5 bg-ink-100 text-ink-600 rounded text-xs">
-                                                            +{souvenir.characters.length - 3}
-                                                        </span>
-                                                    )}
+                                        {/* Metadata */}
+                                        <div className="space-y-2 text-sm">
+                                            {souvenir.characters && souvenir.characters.length > 0 && (
+                                                <div className="flex items-start gap-2">
+                                                    <IconUser className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {souvenir.characters.slice(0, 3).map((char, i) => (
+                                                            <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                                                                {char}
+                                                            </span>
+                                                        ))}
+                                                        {souvenir.characters.length > 3 && (
+                                                            <span className="px-2 py-0.5 bg-ink-100 text-ink-600 rounded text-xs">
+                                                                +{souvenir.characters.length - 3}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
+                                            )}
 
-                                        {souvenir.tags && souvenir.tags.length > 0 && (
-                                            <div className="flex items-start gap-2">
-                                                <IconTag className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
-                                                <div className="flex flex-wrap gap-1">
-                                                    {souvenir.tags.slice(0, 3).map((tag, i) => (
-                                                        <span key={i} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
-                                                            #{tag}
-                                                        </span>
-                                                    ))}
-                                                    {souvenir.tags.length > 3 && (
-                                                        <span className="px-2 py-0.5 bg-ink-100 text-ink-600 rounded text-xs">
-                                                            +{souvenir.tags.length - 3}
-                                                        </span>
-                                                    )}
+                                            {souvenir.tags && souvenir.tags.length > 0 && (
+                                                <div className="flex items-start gap-2">
+                                                    <IconTag className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {souvenir.tags.slice(0, 3).map((tag, i) => (
+                                                            <span key={i} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
+                                                                #{tag}
+                                                            </span>
+                                                        ))}
+                                                        {souvenir.tags.length > 3 && (
+                                                            <span className="px-2 py-0.5 bg-ink-100 text-ink-600 rounded text-xs">
+                                                                +{souvenir.tags.length - 3}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
+                                            )}
 
-                                        <div className="flex items-center gap-2 text-ink-500 text-xs pt-2 border-t border-ink-100">
-                                            <IconClock className="w-3 h-3" />
-                                            {new Date(souvenir.created_at).toLocaleDateString('fr-FR', {
-                                                day: 'numeric',
-                                                month: 'long',
-                                                year: 'numeric'
-                                            })}
+                                            <div className="flex items-center gap-2 text-ink-500 text-xs pt-2 border-t border-ink-100">
+                                                <IconClock className="w-3 h-3" />
+                                                {new Date(souvenir.created_at).toLocaleDateString('fr-FR', {
+                                                    day: 'numeric',
+                                                    month: 'long',
+                                                    year: 'numeric'
+                                                })}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Empty State for Stories */}
-                        {filteredSouvenirs.length === 0 && (
-                            <div className="text-center py-16">
-                                <IconBook className="w-16 h-16 text-ink-300 mx-auto mb-4" />
-                                <h3 className="text-xl font-bold text-ink-700 mb-2">Aucun souvenir trouvé</h3>
-                                <p className="text-ink-500">
-                                    {searchQuery || activeFiltersCount > 0
-                                        ? 'Essayez de modifier vos critères de recherche'
-                                        : 'Commencez à écrire dans l\'atelier pour créer vos premiers souvenirs'}
-                                </p>
+                                ))}
                             </div>
-                        )}
-                    </>
-                )
+
+                            {/* Empty State for Stories */}
+                            {filteredSouvenirs.length === 0 && (
+                                <div className="text-center py-16">
+                                    <IconBook className="w-16 h-16 text-ink-300 mx-auto mb-4" />
+                                    <h3 className="text-xl font-bold text-ink-700 mb-2">Aucun souvenir trouvé</h3>
+                                    <p className="text-ink-500">
+                                        {searchQuery || activeFiltersCount > 0
+                                            ? 'Essayez de modifier vos critères de recherche'
+                                            : 'Commencez à écrire dans l\'atelier pour créer vos premiers souvenirs'}
+                                    </p>
+                                </div>
+                            )}
+                        </>
+                    )
                 }
 
                 {/* Photos Grid */}

@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import SimpleIdeaChest from './SimpleIdeaChest';
 import { StyleSelector } from './StyleSelector';
+import { Tone, Length, Fidelity } from '../types';
 
 interface LeftPanelProps {
     isCollapsed: boolean;
@@ -9,13 +10,14 @@ interface LeftPanelProps {
     ideas: any[];
     onAddIdea: (title: string, content: string, tag: string) => void;
     onDeleteIdea: (id: string) => void;
-    onIdeaClick: (idea: any) => void;
-    tone: string;
-    length: string;
-    fidelity: string;
-    onToneChange: (tone: string) => void;
-    onLengthChange: (length: string) => void;
-    onFidelityChange: (fidelity: string) => void;
+    onIdeaClick: (idea: any) => Promise<void>;
+    tone: Tone;
+    length: Length;
+    fidelity: Fidelity;
+    onToneChange: (tone: Tone) => void;
+    onLengthChange: (length: Length) => void;
+    onFidelityChange: (fidelity: Fidelity) => void;
+    onDataChange?: (key: string, value: any) => void;
 }
 
 export const LeftPanel: React.FC<LeftPanelProps> = ({
@@ -30,7 +32,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     fidelity,
     onToneChange,
     onLengthChange,
-    onFidelityChange
+    onFidelityChange,
+    onDataChange
 }) => {
     return (
         <div className={`left-panel ${isCollapsed ? 'collapsed' : ''}`}>
@@ -56,6 +59,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                             onToneChange={onToneChange}
                             onLengthChange={onLengthChange}
                             onFidelityChange={onFidelityChange}
+                            onDataChange={onDataChange} // Pass it down
                         />
                     </div>
 

@@ -4,9 +4,9 @@ import { IconArchive, IconPlus, IconTag, IconTrash, IconCheck, IconX, IconChevro
 
 interface SimpleIdeaChestProps {
     ideas: Idea[];
-    onAddIdea: (title: string, content: string, tag: string) => Promise<void>;
-    onDeleteIdea: (id: string) => Promise<void>;
-    onIdeaClick: (idea: Idea) => void;
+    onAddIdea: (title: string, content: string, tag: string) => void | Promise<void>;
+    onDeleteIdea: (id: string) => void | Promise<void>;
+    onIdeaClick: (idea: Idea) => void | Promise<void>;
 }
 
 const SimpleIdeaChest: React.FC<SimpleIdeaChestProps> = ({

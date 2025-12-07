@@ -8,6 +8,8 @@ interface CompilationPanelProps {
     onEdit: (newContent: string) => void;
     onRefresh: () => void;
     onSave?: () => void;
+    onUndo?: () => void;
+    canUndo?: boolean;
     maturityScore?: MaturityScore;
 }
 
@@ -17,6 +19,8 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
     onEdit,
     onRefresh,
     onSave,
+    onUndo,
+    canUndo,
     maturityScore
 }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -101,6 +105,15 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
                             GRAVER
                         </button>
                     )}
+                    {canUndo && onUndo && (
+                        <button
+                            onClick={onUndo}
+                            className="btn-icon"
+                            title="Annuler (Revenir à la version précédente)"
+                        >
+                            <RefreshCw size={18} className="transform -scale-x-100" />
+                        </button>
+                    )}
                     <button
                         onClick={toggleEdit}
                         className={`btn-icon ${isEditing ? 'active' : ''}`}
@@ -128,7 +141,7 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
                             <div className="relative w-8 h-8">
                                 <svg className="w-full h-full transform -rotate-90">
                                     <circle cx="16" cy="16" r="14" stroke="#e2e8f0" strokeWidth="3" fill="none" />
-                                    <circle cx="16" cy="16" r="14" stroke="#d97706" strokeWidth="3" fill="none" strokeDasharray={88} strokeDashoffset={88 - (88 * maturityScore.total) / 100} className="transition-all duration-1000 ease-out" />
+                                    <circle cx="16" cy="16" r="14" stroke="#d97706" strokeWidth="3" fill="none" strokeDasharray={88} strokeDashoffset={88 - (88 * (maturityScore?.total || 0)) / 100} className="transition-all duration-1000 ease-out" />
                                 </svg>
                                 <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-ink-600">{maturityScore.total}%</span>
                             </div>

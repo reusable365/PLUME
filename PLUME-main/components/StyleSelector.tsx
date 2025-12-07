@@ -11,6 +11,7 @@ interface StyleSelectorProps {
     onLengthChange: (length: Length) => void;
     onFidelityChange: (fidelity: Fidelity) => void;
     isLoading?: boolean;
+    onDataChange?: (key: string, value: any) => void; // For Verbatim toggle
 }
 
 export const StyleSelector: React.FC<StyleSelectorProps> = ({
@@ -20,7 +21,8 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
     onToneChange,
     onLengthChange,
     onFidelityChange,
-    isLoading = false
+    isLoading = false,
+    onDataChange
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [intensity, setIntensity] = useState(50);
@@ -88,6 +90,19 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
                 </div>
             </div>
 
+            {/* Mode Import (Verbatim) */}
+            <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-ink-200">
+                <input
+                    type="checkbox"
+                    id="verbatim-mode"
+                    className="w-4 h-4 text-accent border-gray-300 rounded focus:ring-accent"
+                    onChange={(e) => onDataChange && onDataChange('verbatim', e.target.checked)}
+                />
+                <label htmlFor="verbatim-mode" className="text-sm font-medium text-ink-700 cursor-pointer">
+                    Mode Import (Texte Sacré)
+                </label>
+            </div>
+
             {/* Expand Button for Advanced Studio */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
@@ -100,30 +115,34 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
             </button>
 
             {/* Expanded Mode - Full Style Studio */}
-            {isExpanded && (
-                <div className="animate-slideDown">
-                    <StyleStudio
-                        currentConfig={{
-                            tone,
-                            intensity,
-                            authorStyle
-                        }}
-                        onConfigChange={handleConfigChange}
-                    />
-                </div>
-            )}
+            {
+                isExpanded && (
+                    <div className="animate-slideDown">
+                        <StyleStudio
+                            currentConfig={{
+                                tone,
+                                intensity,
+                                authorStyle
+                            }}
+                            onConfigChange={handleConfigChange}
+                        />
+                    </div>
+                )
+            }
 
             {/* Current Style Summary */}
-            {(intensity !== 50 || authorStyle) && (
-                <div className="bg-amber-50 border border-accent/30 rounded-lg p-3 text-sm">
-                    <p className="text-ink-700">
-                        <span className="font-semibold">Style actif:</span> {tone}
-                        {intensity !== 50 && ` • Intensité: ${intensity}%`}
-                        {authorStyle && ` • Inspiré de ${authorStyle}`}
-                    </p>
-                </div>
-            )}
-        </div>
+            {
+                (intensity !== 50 || authorStyle) && (
+                    <div className="bg-amber-50 border border-accent/30 rounded-lg p-3 text-sm">
+                        <p className="text-ink-700">
+                            <span className="font-semibold">Style actif:</span> {tone}
+                            {intensity !== 50 && ` • Intensité: ${intensity}%`}
+                            {authorStyle && ` • Inspiré de ${authorStyle}`}
+                        </p>
+                    </div>
+                )
+            }
+        </div >
     );
 };
 

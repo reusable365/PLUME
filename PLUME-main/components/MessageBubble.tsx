@@ -40,7 +40,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSaveIdea, onQu
     } else {
         // Pour l'assistant, le contenu est toujours un objet PlumeResponse
         plumeContent = message.content as PlumeResponse;
-        contentText = plumeContent.narrative;
+        // PRD v2: On affiche la conversation si dispo, sinon le narratif (legacy)
+        contentText = plumeContent.conversation || plumeContent.narrative;
     }
 
     // États spéciaux

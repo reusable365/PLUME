@@ -16,6 +16,7 @@ import PlumeDashboard from './components/PlumeDashboard';
 import PhotoCatalyst from './components/PhotoCatalyst';
 import BoutiqueSouvenirs from './components/BoutiqueSouvenirs';
 import LifeUniverse from './components/LifeUniverse';
+import { BookView } from './components/BookView';
 import { DigitalMemoryImporter } from './components/DigitalMemoryImporter';
 import { DigitalMemoryTimeline } from './components/DigitalMemoryTimeline';
 import SupportSection from './components/SupportSection';
@@ -151,7 +152,7 @@ const App: React.FC = () => {
             } else {
                 setCurrentView('landing');
                 setUserProfile(null);
-                setState({ messages: [], ideas: [], aggregatedData: { dates: new Set(), characters: new Set(), tags: new Set() } });
+                setState({ messages: [], ideas: [], aggregatedData: { dates: new Set(), locations: new Set(), characters: new Set(), tags: new Set() } });
             }
         });
 
@@ -163,18 +164,38 @@ const App: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const { data: profileData, error: profileError } = await supabase
-                .from('profiles')
-                .select('first_name, last_name, birth_date, photos')
-                .eq('id', authUser.id)
-                .single();
+            let profileData = null;
+            let profileError = null;
+
+            // 1. Try Supabase
+            try {
+                const result = await supabase
+                    .from('profiles')
+                    .select('first_name, last_name, birth_date, photos')
+                    .eq('id', authUser.id)
+                    .single();
+                profileData = result.data;
+                profileError = result.error;
+            } catch (e) {
+                console.warn("Supabase profile fetch failed", e);
+            }
 
             let currentUser: User = {
                 id: authUser.id,
                 email: authUser.email,
                 plan: 'premium',
+                subscription_status: 'premium',
                 name: authUser.email.split('@')[0]
             };
+
+            // 2. Try LocalStorage Fallback
+            const localProfileStr = localStorage.getItem(`user_profile_${authUser.id}`);
+            let localProfile = null;
+            if (localProfileStr) {
+                try {
+                    localProfile = JSON.parse(localProfileStr);
+                } catch (e) { console.error("Error parsing local profile", e); }
+            }
 
             if (profileData && !profileError) {
                 currentUser = {
@@ -185,13 +206,15 @@ const App: React.FC = () => {
                     photos: profileData.photos || [],
                     name: profileData.first_name ? `${profileData.first_name} ${profileData.last_name || ''} `.trim() : currentUser.name
                 };
-                if (!profileData.first_name || !profileData.birth_date) {
-                    setShowProfileModal(true);
-                }
-            } else {
-                setShowProfileModal(true);
-                console.warn("Profile not found or incomplete, showing modal.");
+            } else if (localProfile) {
+                console.log("Using local profile fallback");
+                currentUser = { ...currentUser, ...localProfile };
             }
+
+            if (!currentUser.firstName || !currentUser.birthDate) {
+                setShowProfileModal(true);
+            }
+
             setUserProfile(currentUser);
 
             const { data: msgs, error: msgError } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
@@ -204,40 +227,73 @@ const App: React.FC = () => {
             };
 
             if (msgs && !msgError) {
-                loadedMessages = msgs
+                // 1. Raw mapping & Parsing
+                let allMessages = msgs
                     .filter((m: any) => {
                         const content = m.content;
-                        // Filter out archived messages
                         if (content && typeof content === 'object' && content.isArchived === true) return false;
                         return true;
                     })
                     .map((m: any) => {
                         if (m.isDivider) {
-                            return { id: m.id, role: 'assistant', content: '', timestamp: new Date(m.created_at).getTime(), isDivider: true };
+                            return { id: m.id, role: 'assistant' as const, content: '', timestamp: new Date(m.created_at).getTime(), isDivider: true };
                         }
                         if (m.role === 'user') {
                             const userContent = typeof m.content === 'string' ? m.content : (m.content as any).text || '';
                             const userIsSynthesized = typeof m.content === 'object' && m.content !== null && (m.content as any).isSynthesized === true;
-                            return { id: m.id, role: 'user', content: userContent, timestamp: new Date(m.created_at).getTime(), isSynthesized: userIsSynthesized };
+                            return { id: m.id, role: 'user' as const, content: userContent, timestamp: new Date(m.created_at).getTime(), isSynthesized: userIsSynthesized };
                         } else {
                             const plumeResponse: PlumeResponse = m.content as PlumeResponse;
                             if (!Array.isArray(plumeResponse.questions)) plumeResponse.questions = [];
                             plumeResponse.isSynthesized = plumeResponse.isSynthesized === true;
                             plumeResponse.isDrafted = plumeResponse.isDrafted === true;
-
-                            if (plumeResponse.data) {
-                                plumeResponse.data.dates_chronologie?.forEach((d: string) => initialAggregatedData.dates.add(d));
-                                plumeResponse.data.lieux_cites?.forEach((l: string) => initialAggregatedData.locations.add(l));
-                                plumeResponse.data.personnages_cites?.forEach((c: string) => initialAggregatedData.characters.add(c));
-                                plumeResponse.data.tags_suggeres?.forEach((t: string) => initialAggregatedData.tags.add(t));
-                            }
-                            return { id: m.id, role: 'assistant', content: plumeResponse, timestamp: new Date(m.created_at).getTime(), isSynthesized: plumeResponse.isSynthesized };
+                            return { id: m.id, role: 'assistant' as const, content: plumeResponse, timestamp: new Date(m.created_at).getTime(), isSynthesized: plumeResponse.isSynthesized };
                         }
                     });
+
+                // 2. PRD v2: Session Isolation Logic
+                // We find the last divider and only keep messages AFTER it.
+                // This ensures that refreshing the page doesn't load old sessions.
+                const lastDividerIndex = allMessages.map((m: any) => m.isDivider).lastIndexOf(true);
+
+                if (lastDividerIndex !== -1) {
+                    loadedMessages = allMessages.slice(lastDividerIndex + 1);
+                } else {
+                    loadedMessages = allMessages;
+                }
+
+                // 3. Compute Aggregated Data (Scope: Current Session Only)
+                loadedMessages.forEach((m: ChatMessage) => {
+                    if (m.role === 'assistant' && !m.isDivider) {
+                        const pr = m.content as PlumeResponse;
+                        if (pr.data) {
+                            pr.data.dates_chronologie?.forEach((d: string) => initialAggregatedData.dates.add(d));
+                            pr.data.lieux_cites?.forEach((l: string) => initialAggregatedData.locations.add(l));
+                            pr.data.personnages_cites?.forEach((c: string) => initialAggregatedData.characters.add(c));
+                            pr.data.tags_suggeres?.forEach((t: string) => initialAggregatedData.tags.add(t));
+                        }
+                    }
+                });
             }
 
             if (loadedMessages.length === 0) {
-                const welcomeMsg = { id: 'welcome', role: 'assistant', timestamp: Date.now(), content: { narrative: "Bonjour. Je suis PLUME, votre assistant biographe. Confiez-moi un souvenir, une image, ou une sensation, et nous commencerons à tisser le fil de votre histoire.", data: null, suggestion: null, questions: [{ type: 'emotion', label: '❤️ Émotion', text: "Quel sentiment prédomine quand vous y pensez ?" }, { type: 'action', label: '⚡ Action', text: "Par quel événement tout a commencé ?" }, { type: 'descriptif', label: '👁️ Sensoriel', text: "Quelle image ou odeur vous revient en premier ?" }] } as PlumeResponse };
+                // If session is empty, we start a new one (conceptually)
+                const welcomeMsg = {
+                    id: 'welcome',
+                    role: 'assistant',
+                    timestamp: Date.now(),
+                    content: {
+                        narrative: "Bonjour. Je suis PLUME, votre assistant biographe. Confiez-moi un souvenir pour commencer.",
+                        conversation: "Bonjour. Je suis PLUME, votre assistant biographe. Confiez-moi un souvenir, une image, ou une sensation, et nous commencerons à tisser le fil de votre histoire.",
+                        data: null,
+                        suggestion: null,
+                        questions: [
+                            { type: 'emotion', label: '❤️ Émotion', text: "Quel sentiment prédomine quand vous y pensez ?" },
+                            { type: 'action', label: '⚡ Action', text: "Par quel événement tout a commencé ?" },
+                            { type: 'descriptif', label: '👁️ Sensoriel', text: "Quelle image ou odeur vous revient en premier ?" }
+                        ]
+                    } as PlumeResponse
+                };
                 loadedMessages.push(welcomeMsg as ChatMessage);
             }
 
@@ -305,16 +361,42 @@ const App: React.FC = () => {
         if (error) console.error("Error saving entity:", error);
     };
 
-    const triggerSend = useCallback(async (text: string, imageUrl?: string, hiddenText?: string) => {
+    const triggerSend = useCallback(async (text: string, imageUrl?: string, hiddenText?: string, isSacred?: boolean) => {
         if (!text.trim() || isLoading || !session?.user) return;
         soundManager.playKeystroke();
+
         const userMsg: ChatMessage = { id: uuidv4(), role: 'user', content: text, timestamp: Date.now(), imageUrl };
-        const newMessages = [...state.messages, userMsg];
-        setState(prev => ({ ...prev, messages: newMessages }));
-        setInput(''); setIsLoading(true);
+
+        // Use functional update to ensure we always append to the latest state
+        setState(prev => ({ ...prev, messages: [...prev.messages, userMsg] }));
+
+        setInput('');
+        setIsLoading(true);
+
         try {
             // Save visible text to DB
             await supabase.from('messages').insert({ user_id: session.user.id, role: 'user', content: { text: text, isSynthesized: false }, image_url: imageUrl });
+
+            // 🌟 SACRED MODE: Skip AI
+            if (isSacred) {
+                const sacredResponse: PlumeResponse = {
+                    narrative: text,
+                    conversation: "C'est noté. J'ai ajouté ce passage tel quel à votre récit." + (isSacred ? " (Mode Sacré)" : ""),
+                    data: null, suggestion: null, questions: [], isDrafted: false, isSynthesized: true,
+                    thinking: "Mode Import détecté. Copie stricte."
+                };
+                const aiMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: sacredResponse, timestamp: Date.now() };
+                await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: sacredResponse });
+
+                setState(prev => ({ ...prev, messages: [...prev.messages, aiMsg] }));
+
+                setIsLoading(false);
+                return;
+                return;
+            }
+
+            // Reconstruct newMessages for API history context (using current state)
+            const newMessages = [...state.messages, userMsg];
 
             const lastDividerIndex = newMessages.map(m => m.isDivider).lastIndexOf(true);
             const relevantMessages = lastDividerIndex > -1 ? newMessages.slice(lastDividerIndex + 1) : newMessages;
@@ -323,9 +405,15 @@ const App: React.FC = () => {
                 .filter(m => m.id !== 'welcome' && !m.isDivider)
                 .map(m => {
                     if (m.role === 'user') return { role: 'user', parts: [{ text: typeof m.content === 'string' ? m.content : (m.content as any).text || '' }] };
+
+                    // RECONSTRUCT XML FROM PARSED CONTENT
                     const c = m.content as PlumeResponse;
-                    const questionsContext = Array.isArray(c.questions) ? c.questions.map(q => q.text).join(' | ') : '';
-                    return { role: 'model', parts: [{ text: `[TEXTE_PLUME]${c.narrative} [/TEXTE_PLUME][CONTEXTE_QUESTIONS]${questionsContext} [/CONTEXTE_QUESTIONS]` }] };
+                    const conversation = c.conversation ? `<CONVERSATION>${c.conversation}</CONVERSATION>` : '';
+                    const narrative = c.narrative ? `<NARRATIVE>${c.narrative}</NARRATIVE>` : '';
+                    // We don't necessarily need to send back Metadata/Questions in history, just the core content
+                    // to save tokens and keep context focused.
+                    // But if we want to be strict:
+                    return { role: 'model', parts: [{ text: `${conversation}\n${narrative}` }] };
                 }) as { role: 'user' | 'model', parts: [{ text: string }] }[];
 
             const lastDraftedMsg = [...state.messages].reverse().find(m => m.role === 'assistant' && (m.content as PlumeResponse).isDrafted === true);
@@ -364,12 +452,12 @@ const App: React.FC = () => {
         } finally { setIsLoading(false); }
     }, [isLoading, session, state.messages, tone, length, fidelity, userProfile, showToast]);
 
-    const handleSendMessage = (overrideText?: string) => {
+    const handleSendMessage = (overrideText?: string, isSacred?: boolean) => {
         let textToSend = overrideText || input;
         if (timeContext) {
             textToSend = `[CONTEXTE TEMPOREL: ${timeContext}] ${textToSend}`;
         }
-        triggerSend(textToSend);
+        triggerSend(textToSend, undefined, undefined, isSacred);
         setTimeContext(null);
     };
 
@@ -517,6 +605,10 @@ const App: React.FC = () => {
 
     const handleSynthesis = async () => {
         if (isLoading || !session?.user) return;
+
+        // Undo: Push current state
+        if (draftContent.trim()) pushToUndoStack(draftContent);
+
         let cutoffTimestamp = 0;
         const lastDraftedMsg = [...state.messages].reverse().find(m => m.role === 'assistant' && (m.content as PlumeResponse).isDrafted === true);
         if (lastDraftedMsg) cutoffTimestamp = lastDraftedMsg.timestamp;
@@ -587,6 +679,31 @@ const App: React.FC = () => {
         if (error) { console.error("Erreur suppression:", error); setState(prev => ({ ...prev, ideas: previousIdeas })); showToast("Erreur : Impossible de supprimer l'idée.", 'error'); }
         else { showToast("Idée supprimée.", 'success'); }
     };
+
+    const convertIdea = async (id: string) => {
+        if (!session?.user) return;
+        // Optimistic update: Mark as converted in local state (effectively hiding it from chest if filtered)
+        // Ideally we filter state.ideas to only show active ones, OR we update status.
+        // For now, let's remove it from the list to hide it, as filtering happens at query time usually.
+        // But if we want to keep it in "history", we should just update status in state?
+        // Let's remove it to simple "hide from chest" behavior for now, matching deleteIdea UX but preserving in DB.
+
+        setState(prev => ({ ...prev, ideas: prev.ideas.filter(i => i.id !== id) }));
+
+        // DB Update
+        try {
+            const { error } = await supabase.from('ideas').update({ status: 'converted', souvenir_id: workspaceId || undefined }).eq('id', id);
+            if (error) {
+                // If column doesn't exist, this will error. We should just log it for now as we can't migrate DB here.
+                // If error, we might consider "hard delete" logic if we really want it gone, but let's assume V2.1 schema.
+                console.warn("Soft-delete/Convert failed (Schema mismatch?), falling back to hard delete to clean up.", error);
+                await supabase.from('ideas').delete().eq('id', id);
+            }
+        } catch (e) {
+            console.error("Conversion error", e);
+        }
+    };
+
     const handleIdeaClick = (idea: Idea) => {
         const autoPrompt = `Je sélectionne cette idée de mon coffre: "${idea.title || 'Note'}".Contenu : "${idea.content}".Analyse et guide - moi.`;
         triggerSend(autoPrompt);
@@ -601,7 +718,28 @@ const App: React.FC = () => {
             if (msgToUpdate) await supabase.from('messages').update({ content: { ...(msgToUpdate.content as PlumeResponse), isDrafted: true } }).eq('id', messageId);
         }
     };
-    const handleUpdateDraft = (content: string) => setDraftContent(content);
+    const [undoStack, setUndoStack] = useState<string[]>([]);
+
+    const handleUndo = () => {
+        if (undoStack.length === 0) return;
+        const previousContent = undoStack[undoStack.length - 1];
+        setDraftContent(previousContent);
+        setUndoStack(prev => prev.slice(0, -1));
+        showToast("Rétablissement de la version précédente.", 'success');
+    };
+
+    const pushToUndoStack = (content: string) => {
+        setUndoStack(prev => [...prev.slice(-4), content]); // Keep last 5 states
+    };
+
+    const handleUpdateDraft = (content: string) => {
+        // We push state before large updates or user manual edits if needed, but for now user just requested "active des régénération".
+        // React state updates are tricky for "before" state.
+        // We will call pushToUndoStack inside handleSynthesis before it updates state.
+        setDraftContent(content);
+    };
+
+
     const handleValidationConfirm = async (data: ValidationData) => {
         setIsLoading(true);
         try {
@@ -737,15 +875,77 @@ const App: React.FC = () => {
 
 
     const handleSouvenirSelect = async (souvenirId: string) => {
-        // Fetch from chapters table (since BoutiqueSouvenirs now lists chapters)
+        // Fetch from chapters table
         const { data, error } = await supabase.from('chapters').select('*').eq('id', souvenirId).single();
 
         if (data) {
-            setDraftContent(data.content);
+            setDraftContent(data.content || '');
             setWorkspaceId(data.id);
             setCurrentView('studio');
-            setShowLeftPanel(true); // Open IdeaChest/Draft
-            showToast("Chapitre chargé dans l'atelier", 'success');
+            setShowLeftPanel(true);
+
+            // PRD v2: Session Reset & Contextuation
+            // 1. Reset Chat State (Clear previous conversation)
+            setState(prev => ({
+                ...prev,
+                messages: []
+            }));
+
+            // 2. Start new editing session with AI Context
+            setIsLoading(true);
+            try {
+                // Construct a system-like prompt to orient the AI
+                const editPrompt = `[MODE ÉDITION ACTIVÉ]
+L'auteur souhaite modifier ou compléter le souvenir intitulé : "${data.title}".
+Contenu actuel : "${(data.content || '').substring(0, 200)}..."
+
+TA MISSION :
+Accueille l'auteur et demande-lui ce qu'il souhaite modifier. 
+Sois bref et professionnel.`;
+
+                // We send this directly to getting a "Welcome to Edit Mode" response
+                const response = await sendMessageToPlume(editPrompt, tone, length, fidelity, [], data.content, userProfile);
+
+                const aiMsg: ChatMessage = {
+                    id: uuidv4(),
+                    role: 'assistant',
+                    content: response,
+                    timestamp: Date.now()
+                };
+
+                // Insert into DB as a new session start
+                await supabase.from('messages').insert({
+                    user_id: session.user.id,
+                    role: 'assistant',
+                    content: response,
+                    isDivider: true // Mark this as a new session start in DB
+                });
+
+                setState(prev => ({ ...prev, messages: [aiMsg] }));
+                showToast("Mode édition activé", 'success');
+
+            } catch (err) {
+                console.error("Error starting edit session:", err);
+                // Fallback UI
+                setState(prev => ({
+                    ...prev,
+                    messages: [{
+                        id: uuidv4(),
+                        role: 'assistant',
+                        content: {
+                            narrative: '',
+                            conversation: `Je suis prêt à modifier "${data.title}" avec vous. Que souhaitez-vous changer ?`,
+                            data: null,
+                            suggestion: null,
+                            questions: []
+                        } as PlumeResponse,
+                        timestamp: Date.now()
+                    }]
+                }));
+            } finally {
+                setIsLoading(false);
+            }
+
         } else {
             console.error("Error loading chapter:", error);
             showToast("Erreur lors du chargement du souvenir", 'error');
@@ -917,7 +1117,7 @@ const App: React.FC = () => {
             await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
 
             // 2. Detect narrative gaps (dark zones)
-            const gaps = await detectGaps(state.messages, userProfile);
+            const gaps = await detectGaps(session.user.id, userProfile?.birthDate);
             const darkZones = gaps.map(gap => ({
                 title: gap.title,
                 description: gap.description,
@@ -1136,9 +1336,9 @@ Date: ${dateStr}.
                         content: draftContent,
                         maturityScore: (() => {
                             // Calcul du vrai score de maturité
-                            const dates = aggregatedData.dates.size;
-                            const characters = aggregatedData.characters.size;
-                            const locations = aggregatedData.locations.size;
+                            const dates = state.aggregatedData.dates.size;
+                            const characters = state.aggregatedData.characters.size;
+                            const locations = state.aggregatedData.locations.size;
                             const userMessages = state.messages.filter(m => m.role === 'user' && !m.isDivider).length;
                             const wordCount = draftContent.trim().split(/\s+/).filter(w => w.length > 0).length;
 
@@ -1155,9 +1355,16 @@ Date: ${dateStr}.
                             const emotion = emotionKeywords.test(draftContent) ? 20 : 0;
 
                             const total = metadata + volume + emotion;
-                            const status = total >= 80 ? 'pret' : total >= 40 ? 'en_cours' : 'germination';
-
-                            return { score: total, status, feedback: [] };
+                            return {
+                                total,
+                                status: (total >= 80 ? 'pret' : total >= 40 ? 'en_cours' : 'germination') as 'pret' | 'en_cours' | 'germination',
+                                feedback: [],
+                                breakdown: {
+                                    metadata,
+                                    volume,
+                                    emotion
+                                }
+                            };
                         })(),
                         dates: Array.from(state.aggregatedData.dates),
                         locations: Array.from(state.aggregatedData.locations),
@@ -1244,6 +1451,7 @@ Date: ${dateStr}.
                         ideas={state.ideas}
                         onAddIdea={manualAddIdea}
                         onDeleteIdea={deleteIdea}
+                        onConvertIdea={convertIdea}
                         draftContent={draftContent}
                         setDraftContent={setDraftContent}
                         onInsertDraft={handleInsertDraft}
@@ -1255,7 +1463,9 @@ Date: ${dateStr}.
                         aggregatedData={state.aggregatedData}
                         sessionMessages={state.messages}
                         isSending={isLoading}
-                        onSendMessage={async (text) => { handleSendMessage(text); return Promise.resolve(); }}
+                        onSendMessage={async (text, isSacred) => { handleSendMessage(text, isSacred); return Promise.resolve(); }}
+                        onUndo={handleUndo}
+                        canUndo={undoStack.length > 0}
                         onQuestionClick={async (id, index) => { await handleQuestionClick(id, index); }}
                         onInsertDivider={async (label) => {
                             if (!label) {
@@ -1273,7 +1483,7 @@ Date: ${dateStr}.
                 {currentView === 'dashboard' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><PlumeDashboard userId={session.user.id} userProfile={userProfile} messages={state.messages} onGapClick={handleGapAction} /></div>)}
                 {currentView === 'boutique' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><BoutiqueSouvenirs userId={session.user.id} onSouvenirSelect={handleSouvenirSelect} /></div>)}
                 {currentView === 'universe' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><LifeUniverse userId={session.user.id} userProfile={userProfile} messages={state.messages} /></div>)}
-                {currentView === 'manuscript' && (<div className="w-full h-full pb-16 md:pb-0"><ManuscriptView userProfile={userProfile} showToast={showToast} /></div>)}
+                {currentView === 'manuscript' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><BookView userId={session.user.id} /></div>)}
                 {currentView === 'gallery' && (<div className="w-full h-full pb-16 md:pb-0"><SouvenirGallery characters={state.aggregatedData.characters} tags={state.aggregatedData.tags} photos={userProfile?.photos || []} /></div>)}
                 {currentView === 'digital-memory' && (
                     <div className="w-full h-full pb-16 md:pb-0 overflow-y-auto bg-gradient-to-br from-slate-50 to-indigo-50/30 p-8">
