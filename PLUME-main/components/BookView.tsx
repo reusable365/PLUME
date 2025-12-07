@@ -211,7 +211,23 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
         }
     };
 
-    const handleExportPDF = () => {
+    const imageUrlToBase64 = async (url: string): Promise<string> => {
+        try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        } catch (error) {
+            console.error("Error loading image for PDF:", error);
+            return "";
+        }
+    };
+
+    const handleExportPDF = async () => {
         const doc = new jsPDF();
         let yPos = 20;
         const margin = 20;
@@ -251,12 +267,14 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
         doc.addPage();
 
         // --- Chapters ---
-        bookStructure.chapters.forEach((chap, index) => {
+        for (let i = 0; i < bookStructure.chapters.length; i++) {
+            const chap = bookStructure.chapters[i];
+
             // Chapter Title
             yPos = margin;
             doc.setFontSize(24);
             doc.setFont("times", "bold");
-            doc.text(`Chapitre ${index + 1}`, pageWidth / 2, yPos, { align: "center" });
+            doc.text(`Chapitre ${i + 1}`, pageWidth / 2, yPos, { align: "center" });
             yPos += 15;
 
             doc.setFontSize(20);
@@ -277,7 +295,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
             doc.setFont("times", "normal");
             doc.setFontSize(12);
 
-            chap.memoryIds.forEach(memId => {
+            for (const memId of chap.memoryIds) {
                 const mem = getSouvenirById(memId);
                 if (mem) {
                     // Souvenir Title
@@ -286,6 +304,30 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                     doc.setFontSize(14);
                     doc.text(mem.title, margin, yPos);
                     yPos += 10;
+
+                    // --- Image Integration ---
+                    if (mem.imageUrl) {
+                        try {
+                            const imgBase64 = await imageUrlToBase64(mem.imageUrl);
+                            if (imgBase64) {
+                                const imgProps = doc.getImageProperties(imgBase64);
+                                const imgWidth = maxLineWidth;
+                                // Calculate height maintaining aspect ratio
+                                const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+
+                                // Check for space
+                                if (yPos + imgHeight > 270) {
+                                    doc.addPage();
+                                    yPos = margin;
+                                }
+
+                                doc.addImage(imgBase64, margin, yPos, imgWidth, imgHeight);
+                                yPos += imgHeight + 10;
+                            }
+                        } catch (imgErr) {
+                            console.warn("Failed to load image for PDF", imgErr);
+                        }
+                    }
 
                     // Souvenir Text
                     doc.setFont("times", "normal");
@@ -309,10 +351,12 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                     doc.text("***", pageWidth / 2, yPos, { align: "center" });
                     yPos += 15;
                 }
-            });
+            }
 
-            doc.addPage();
-        });
+            if (i < bookStructure.chapters.length - 1) {
+                doc.addPage();
+            }
+        }
 
         doc.save("mon_livre_plume.pdf");
     };
