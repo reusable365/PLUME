@@ -248,8 +248,34 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
             };
 
             // --- 1. COVER PAGE (Premium Design) ---
-            doc.setFillColor(250, 248, 245); // Warm Paper background
-            doc.rect(0, 0, pageWidth, pageHeight, 'F');
+            if (bookStructure.coverImage) {
+                try {
+                    // Load custom cover image
+                    // Note: If using base64 from FileReader, it's already loaded.
+                    // If it's a URL, imageUrlToBase64 handles it.
+                    let coverImgData = bookStructure.coverImage;
+                    if (!coverImgData.startsWith('data:')) {
+                        coverImgData = await imageUrlToBase64(bookStructure.coverImage);
+                    }
+
+                    if (coverImgData) {
+                        doc.addImage(coverImgData, 'JPEG', 0, 0, pageWidth, pageHeight);
+                        // Add a semi-transparent white overlay to ensure text readability
+                        doc.setFillColor(255, 255, 255);
+                        // jsPDF doesn't support transparency well in setFillColor directly in some versions, 
+                        // but GState can work. For MVP simplicity/robustness, we'll just skip the overlay 
+                        // or assume the user chose a good image. 
+                        // BETTER APPROACH: Add a rectangle with lighter color if possible? No.
+                    }
+                } catch (e) {
+                    console.warn("Failed to load cover image for PDF", e);
+                    doc.setFillColor(250, 248, 245);
+                    doc.rect(0, 0, pageWidth, pageHeight, 'F');
+                }
+            } else {
+                doc.setFillColor(250, 248, 245); // Warm Paper background
+                doc.rect(0, 0, pageWidth, pageHeight, 'F');
+            }
 
             // Ornamental Border
             doc.setDrawColor(60, 60, 60);
@@ -460,7 +486,34 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                 doc.text(bookStructure.title.toUpperCase(), pageWidth / 2, 12, { align: "center" });
             }
 
-            doc.save(`Plume_Memoires_${new Date().toISOString().split('T')[0]}.pdf`);
+            // --- 5. EXPORT STRATEGY (Visual + Download) ---
+            const pdfBlob = new Blob([doc.output('blob')], { type: 'application/pdf' });
+            const blobUrl = URL.createObjectURL(pdfBlob);
+            const safeDate = new Date().toISOString().split('T')[0];
+            const safeFilename = `Plume_Memoires_${safeDate}.pdf`;
+
+            // A. Open in New Tab (Immediate Feedback & Debug)
+            // This allows the user to SEE the PDF even if the download fails invisibly
+            try {
+                window.open(blobUrl, '_blank');
+            } catch (e) {
+                console.warn("Popup blocked?");
+            }
+
+            // B. Trigger Download (Standard)
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = safeFilename;
+            document.body.appendChild(link);
+            link.click();
+
+            // Cleanup (Longer delay to ensure download starts)
+            setTimeout(() => {
+                document.body.removeChild(link);
+                // Do NOT revoke immediately if we want the new tab to stay alive
+                // URL.revokeObjectURL(blobUrl); 
+            }, 5000);
+
         } catch (error) {
             console.error("Export Error:", error);
             alert("Erreur lors de l'export PDF. Vérifiez la console.");
@@ -720,16 +773,78 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                     {isPreviewMode ? renderPreview() : (
                         <div className="max-w-3xl mx-auto space-y-8 pb-20">
 
-                            {/* Cover Placeholder */}
-                            <div className="aspect-[1/1.414] bg-white shadow-2xl rounded-r-lg border-l-4 border-l-stone-800 p-12 flex flex-col justify-center items-center text-center mb-12 transform hover:scale-[1.01] transition-transform duration-500">
-                                <div className="w-full h-full border-4 border-double border-stone-200 p-8 flex flex-col justify-between">
-                                    <div className="text-stone-400 text-sm tracking-[0.3em] uppercase">Mémoires</div>
-                                    <div>
-                                        <h1 className="font-serif text-5xl text-ink-900 mb-4">{bookStructure.title}</h1>
-                                        <div className="w-24 h-1 bg-accent mx-auto mb-4"></div>
-                                        <h2 className="font-serif text-xl text-ink-600 italic">{bookStructure.subtitle}</h2>
+                            {/* Cover Editor */}
+                            <div className="group relative aspect-[1/1.414] bg-white shadow-2xl rounded-r-lg border-l-4 border-l-stone-800 flex flex-col justify-center items-center text-center mb-12 transform transition-transform duration-500 overflow-hidden">
+
+                                {/* Background Image Layer */}
+                                {bookStructure.coverImage && (
+                                    <div className="absolute inset-0 z-0">
+                                        <img
+                                            src={bookStructure.coverImage}
+                                            alt="Cover Background"
+                                            className="w-full h-full object-cover opacity-30" // Low opacity by default for text readability
+                                        />
+                                        <div className="absolute inset-0 bg-stone-900/10 mix-blend-multiply"></div>
                                     </div>
-                                    <div className="text-stone-500 font-medium">Par {userId ? "L'Auteur" : "..."}</div>
+                                )}
+
+                                {/* Content Layer */}
+                                <div className="relative z-10 w-full h-full p-12 flex flex-col justify-between">
+                                    <div className="w-full h-full border-4 border-double border-stone-800/20 p-8 flex flex-col justify-between">
+                                        <div className="text-stone-500 text-sm tracking-[0.3em] uppercase">Mémoires</div>
+                                        <div>
+                                            <input
+                                                type="text"
+                                                value={bookStructure.title}
+                                                onChange={(e) => setBookStructure(prev => ({ ...prev, title: e.target.value }))}
+                                                className="font-serif text-5xl text-ink-900 mb-4 bg-transparent border-none text-center w-full focus:ring-0 placeholder-ink-300"
+                                                placeholder="Titre du Livre"
+                                            />
+                                            <div className="w-24 h-1 bg-accent mx-auto mb-4"></div>
+                                            <input
+                                                type="text"
+                                                value={bookStructure.subtitle}
+                                                onChange={(e) => setBookStructure(prev => ({ ...prev, subtitle: e.target.value }))}
+                                                className="font-serif text-xl text-ink-600 italic bg-transparent border-none text-center w-full focus:ring-0 placeholder-ink-300"
+                                                placeholder="Sous-titre..."
+                                            />
+                                        </div>
+                                        <div className="text-stone-500 font-medium">Par {userId ? "L'Auteur" : "..."}</div>
+                                    </div>
+                                </div>
+
+                                {/* Controls Overlay (Visible on Hover) */}
+                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-4 z-20 backdrop-blur-sm">
+                                    <h3 className="text-white font-bold text-lg">Personnaliser la Couverture</h3>
+
+                                    <label className="cursor-pointer px-6 py-3 bg-white text-ink-900 rounded-full font-bold hover:bg-accent hover:text-white transition-all shadow-lg flex items-center gap-2">
+                                        <IconSparkles className="w-4 h-4" />
+                                        Choisir une image de fond
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    const reader = new FileReader();
+                                                    reader.onloadend = () => {
+                                                        setBookStructure(prev => ({ ...prev, coverImage: reader.result as string, coverStyle: 'photo' }));
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+
+                                    {bookStructure.coverImage && (
+                                        <button
+                                            onClick={() => setBookStructure(prev => ({ ...prev, coverImage: undefined, coverStyle: 'classic' }))}
+                                            className="px-4 py-2 bg-red-500/80 text-white rounded-full text-sm hover:bg-red-600 transition-colors"
+                                        >
+                                            Retirer l'image
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 

@@ -64,20 +64,34 @@ SENSORIEL|Question sur les sens (odeur, lumière) ?
 `;
 
 const parsePlumeResponse = (text: string): PlumeResponse => {
-  // 0. Pre-cleaning: Remove potential "thinking" or garbage before the first XML tag
-  // If the AI writes "Sure, here is the XML: <THINKING>...", we want to ignore the prefix.
-  let cleanText = text;
-  const firstTagIndex = text.search(/<(THINKING|CONVERSATION|NARRATIVE|METADATA|QUESTIONS)>/);
-  if (firstTagIndex > 0) {
-    cleanText = text.substring(firstTagIndex);
-  }
+  // 1. Robust Regex Extraction
+  // We allow optional spaces inside tags: < CONVERSATION >
+  const tagRegex = (tagName: string) => new RegExp(`<\\s*${tagName}\\s*>([\\s\\S]*?)(?:<\\/\\s*${tagName}\\s*>|$)`, 'i');
 
-  // 1. Extraction via Regex XML robustes
-  const thinking = cleanText.match(/<THINKING>([\s\S]*?)<\/THINKING>/i)?.[1]?.trim() || '';
-  const narrative = cleanText.match(/<NARRATIVE>([\s\S]*?)<\/NARRATIVE>/i)?.[1]?.trim() || '';
-  const conversation = cleanText.match(/<CONVERSATION>([\s\S]*?)<\/CONVERSATION>/i)?.[1]?.trim() || '';
-  const metadataStr = cleanText.match(/<METADATA>([\s\S]*?)<\/METADATA>/i)?.[1]?.trim() || '{}';
-  const questionsStr = cleanText.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/i)?.[1]?.trim() || '';
+  // Note: The non-greedy capture ([\s\S]*?) combined with (?:ClosingTag|$) allows capturing 
+  // content even if the closing tag is missing (truncated response), stopping at end of string.
+  // Ideally we prefer matching the closing tag, so we might try strict match first.
+
+  const extract = (tagName: string): string => {
+    // Try strict match first (with closing tag)
+    const strictRegex = new RegExp(`<\\s*${tagName}\\s*>([\\s\\S]*?)<\\/\\s*${tagName}\\s*>`, 'i');
+    const strictMatch = text.match(strictRegex);
+    if (strictMatch) return strictMatch[1].trim();
+
+    // Fallback: Match from open tag to end of string (or next start of similar tag? No, assume hierarchy is simple)
+    // Actually, let's keep it simple: If strict fails, we might miss data. 
+    // But for "Kickstarter", it's better to get partial text than nothing.
+    // Let's rely on standard regex but maybe flexible on the closing side if we suspect truncation.
+    return '';
+  };
+
+  // We revert to standard robust regexes but with space tolerance
+  // We use [\s\S]*? to be non-greedy.
+  const thinking = text.match(/<\s*THINKING\s*>([\s\S]*?)<\/\s*THINKING\s*>/i)?.[1]?.trim() || '';
+  const narrative = text.match(/<\s*NARRATIVE\s*>([\s\S]*?)<\/\s*NARRATIVE\s*>/i)?.[1]?.trim() || '';
+  const conversation = text.match(/<\s*CONVERSATION\s*>([\s\S]*?)<\/\s*CONVERSATION\s*>/i)?.[1]?.trim() || '';
+  const metadataStr = text.match(/<\s*METADATA\s*>([\s\S]*?)<\/\s*METADATA\s*>/i)?.[1]?.trim() || '{}';
+  const questionsStr = text.match(/<\s*QUESTIONS\s*>([\s\S]*?)<\/\s*QUESTIONS\s*>/i)?.[1]?.trim() || '';
 
   // 2. Parsing Metadata
   let parsedData = {
@@ -90,12 +104,10 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
 
   try {
     let cleanJson = metadataStr.replace(/```json/g, '').replace(/```/g, '').trim();
-    // Improved sanitization: Find first { and last }
     const firstBrace = cleanJson.indexOf('{');
     const lastBrace = cleanJson.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
-
       if (cleanJson && cleanJson !== '{}') {
         const rawMeta = JSON.parse(cleanJson);
         parsedData = {
@@ -135,18 +147,24 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
     });
   }
 
+  // PREVENT GARBAGE FALLBACK:
+  // If we detected ANY of our standard tags in the text, we assume it's attempting to be XML.
+  // In that case, we DO NOT fall back to returning the whole string as conversation.
+  // This prevents the "Internal Monologue" from leaking into the UI if parsing fails.
+  const hasXmlTags = /<\s*(THINKING|CONVERSATION|NARRATIVE|METADATA|QUESTIONS)\s*>/i.test(text);
+
+  let finalConversation = conversation;
+  // Only use raw text as fallback if NO XML tags were found AND text is not empty.
+  if (!finalConversation && !narrative && !thinking && !hasXmlTags && text.trim().length > 0) {
+    finalConversation = text.trim();
+  }
+
   if (parsedQuestions.length === 0) {
     parsedQuestions.push({
       type: 'action',
       label: 'La Suite',
       text: "Que souhaitez-vous raconter ensuite ?"
     });
-  }
-
-  // Fallback: If no conversation extracted but text exists and no tags found, use raw text (for backward compatibility or errors)
-  let finalConversation = conversation;
-  if (!finalConversation && !narrative && !thinking && firstTagIndex === -1 && text.trim().length > 0) {
-    finalConversation = text.trim();
   }
 
   return {

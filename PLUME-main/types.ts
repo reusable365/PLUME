@@ -236,6 +236,8 @@ export interface BookStructure {
   totalEstimatedPages: number;
   rationale?: string; // Explication de l'IA sur ses choix
   generatedAt: string;
+  coverImage?: string; // URL de l'image de couverture
+  coverStyle?: 'classic' | 'modern' | 'photo'; // Style de la couverture
 }
 
 
