@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendMessageToPlume, synthesizeNarrative, generateTitleAndMetadata, generateKickstarter } from './services/geminiService';
-import { supabase } from './services/supabaseClient';
+import { supabase, supabaseConfigError } from './services/supabaseClient';
 import { soundManager } from './services/soundManager';
 import { detectGaps } from './services/analyticsService';
 import { ChatMessage, PlumeResponse, Tone, Length, AppState, Idea, ViewType, User, Fidelity, PhotoCatalystResult, DigitalMemory } from './types';
@@ -26,10 +26,10 @@ import { StyleSelector } from './components/StyleSelector';
 import { IconMicrophone, IconStopCircle, IconSettings, IconSend, IconBook, IconFeather, IconLayout, IconLogOut, IconUser, IconClock, IconMagic, IconBookOpen, IconCheck, IconScissors, IconX, IconRefresh, IconTarget, IconSearch, IconCamera, IconUsers, IconMapPin, IconHelp, IconSun, IconMoon, IconSunset, IconEye, IconEyeOff, IconVolume2, IconVolumeX, IconMap, IconSparkles, IconShare2 } from './components/Icons';
 import GuestMemoryCard from './components/GuestMemoryCard';
 import { v4 as uuidv4 } from 'uuid';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
 
 // Utility Functions for Audio Encoding/Decoding (from Google GenAI Coding Guidelines)
-function createBlob(data: Float32Array): Blob {
+function createBlob(data: Float32Array): GenAIBlob {
     const l = data.length;
     const int16 = new Int16Array(l);
     for (let i = 0; i < l; i++) {
@@ -62,6 +62,48 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error' }> = ({ messa
 );
 
 const App: React.FC = () => {
+    if (supabaseConfigError) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 p-8 text-center text-red-900 font-sans">
+                <div className="bg-white p-8 rounded-xl shadow-xl max-w-lg border border-red-200">
+                    <h1 className="text-2xl font-bold mb-4 flex items-center justify-center gap-2">
+                        ⚠️ Configuration Manquante
+                    </h1>
+                    <p className="mb-6 text-red-700">
+                        {supabaseConfigError}
+                    </p>
+                    <div className="text-left bg-gray-50 p-4 rounded-lg text-sm font-mono text-gray-700 mb-6 border border-gray-200">
+                        <p className="font-bold mb-2">Instructions :</p>
+                        <ol className="list-decimal pl-5 space-y-1">
+                            <li>Créez un fichier <code>.env.local</code> à la racine.</li>
+                            <li>Ajoutez vos clés Supabase et Gemini.</li>
+                            <li>Redémarrez le serveur (npm run dev).</li>
+                        </ol>
+                    </div>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
+                    >
+                        Réessayer
+                    </button>
+                    <button
+                        onClick={() => {
+                            // Temporary override for demo if needed
+                            const key = prompt("Entrez la clé Supabase Anon (Optionnel pour démo):");
+                            if (key) {
+                                localStorage.setItem('plume_supabase_key', key);
+                                window.location.reload();
+                            }
+                        }}
+                        className="block mt-4 text-xs text-red-500 hover:text-red-700 underline mx-auto"
+                    >
+                        Configurer manuellement (Session)
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     // --- Auth & Navigation State ---
     const [session, setSession] = useState<any>(null);
     const [currentView, setCurrentView] = useState<ViewType>('landing');
@@ -814,26 +856,72 @@ const App: React.FC = () => {
             });
             await Promise.all(archivePromises);
 
+            // Cleanup Ghost Drafts: Ensure no other 'draft_workspace' remains for this user
+            // This prevents "Zombie" drafts from appearing on next reload.
+            await supabase.from('chapters')
+                .update({ status: 'draft' }) // Archive them as normal drafts
+                .eq('user_id', session.user.id)
+                .eq('status', 'draft_workspace')
+                .neq('id', workspaceId || '00000000-0000-0000-0000-000000000000');
+
             setDraftContent('');
             setWorkspaceId(null);
             setShowValidationModal(false);
-            setSuggestedTitle(''); // Reset suggested title
+            setSuggestedTitle('');
 
-            // Reset Chat
-            const welcomeMsg = {
-                id: 'welcome',
+            // --- SMART WELCOME (Re-engagement) ---
+            // Instead of a static message, we generate a fresh kickstarter context.
+
+            // 1. Add divider
+            const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: '', timestamp: Date.now(), isDivider: true };
+            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
+
+            // 2. Context Analysis (Gaps & Ideas)
+            const gaps = await detectGaps(session.user.id, userProfile?.birthDate);
+            const darkZones = gaps.map(gap => ({
+                title: gap.title,
+                description: gap.description,
+                category: gap.icon === 'IconClock' ? 'period' : gap.icon === 'IconUsers' ? 'person' : 'theme'
+            }));
+            const ideasForKickstart = state.ideas.map(idea => ({
+                id: idea.id,
+                title: idea.title || 'Idée',
+                content: idea.content,
+                tags: idea.tags || []
+            }));
+
+            // 3. Generate AI Kickstarter
+            // We tell the AI we just finished a memory to adapt the tone.
+            const kickstarterResponse = await generateKickstarter(userProfile, ideasForKickstart, darkZones);
+
+            // Override the default "Welcome" conversation to acknowledge the success
+            if (kickstarterResponse.conversation && !kickstarterResponse.conversation.startsWith("Bravo")) {
+                kickstarterResponse.conversation = `C'est gravé ! ${kickstarterResponse.conversation}`;
+            }
+
+            const aiMsg: ChatMessage = {
+                id: uuidv4(),
                 role: 'assistant',
-                timestamp: Date.now(),
-                content: {
-                    narrative: "Souvenir gravé avec succès. Je suis prêt pour une nouvelle histoire.",
-                    data: null,
-                    suggestion: null,
-                    questions: [
-                        { type: 'action', label: 'Nouveau Souvenir', text: "De quoi voulez-vous parler maintenant ?" }
-                    ]
-                } as PlumeResponse
+                content: kickstarterResponse,
+                timestamp: Date.now()
             };
-            setState(prev => ({ ...prev, messages: [welcomeMsg as ChatMessage] }));
+
+            await supabase.from('messages').insert({
+                user_id: session.user.id,
+                role: 'assistant',
+                content: kickstarterResponse
+            });
+
+            setState(prev => ({
+                ...prev,
+                messages: [dividerMsg, aiMsg],
+                aggregatedData: {
+                    dates: new Set<string>(),
+                    locations: new Set<string>(),
+                    characters: new Set<string>(),
+                    tags: new Set<string>()
+                }
+            }));
 
             soundManager.playSuccess();
             showToast(`Souvenir gravé: "${data.title}"`, 'success');
@@ -1071,10 +1159,12 @@ Sois bref et professionnel.`;
 
         try {
             // 0. Auto-save current draft if exists
+            // 0. Auto-save current draft if exists AND ARCHIVE IT
             if (draftContent.trim()) {
                 if (workspaceId) {
                     await supabase.from('chapters').update({
                         content: draftContent,
+                        status: 'draft', // <--- CRITICAL FIX: Archive it so it's no longer the active workspace
                         updated_at: new Date().toISOString()
                     }).eq('id', workspaceId);
                 } else {
@@ -1091,7 +1181,7 @@ Sois bref et professionnel.`;
                         }
                     });
                 }
-                showToast("Brouillon précédent sauvegardé.", 'success');
+                showToast("Brouillon précédent archivé.", 'success');
             }
 
             // 0.5 ARCHIVE OLD MESSAGES (Fix persistence issue)
@@ -1106,6 +1196,11 @@ Sois bref et professionnel.`;
                 return supabase.from('messages').update({ content: newContent }).eq('id', m.id);
             });
             await Promise.all(archivePromises);
+
+            // Double Check: Ensure no other 'draft_workspace' status remains
+            if (session?.user) {
+                await supabase.from('chapters').update({ status: 'draft' }).eq('user_id', session.user.id).eq('status', 'draft_workspace');
+            }
 
             // Reset workspace for new sequence
             setDraftContent('');

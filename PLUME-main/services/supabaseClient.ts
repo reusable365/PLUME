@@ -1,8 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Configuration Supabase avec variables d'environnement Vite
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
 const getSupabaseKey = () => {
     // 1. Variable d'environnement Vite (Priorité haute)
     const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -14,26 +11,27 @@ const getSupabaseKey = () => {
         if (stored) return stored;
     }
 
-    // 3. Erreur stricte si aucune clé n'est trouvée
-    throw new Error(
-        '🔴 VITE_SUPABASE_ANON_KEY manquante.\n\n' +
-        'Créez un fichier .env.local à la racine du projet avec :\n' +
-        'VITE_SUPABASE_URL=https://your-project.supabase.co\n' +
-        'VITE_SUPABASE_ANON_KEY=your_anon_key_here\n' +
-        'GEMINI_API_KEY=your_gemini_api_key_here'
-    );
+    return null;
 };
 
-// Validation stricte de l'URL
-if (!supabaseUrl) {
-    throw new Error(
-        '🔴 VITE_SUPABASE_URL manquante. Vérifiez votre fichier .env.local'
-    );
-}
-
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseKey = getSupabaseKey();
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export let supabaseConfigError: string | null = null;
+
+if (!supabaseUrl) {
+    supabaseConfigError = '🔴 VITE_SUPABASE_URL manquante. Vérifiez votre fichier .env.local';
+    console.error(supabaseConfigError);
+} else if (!supabaseKey) {
+    supabaseConfigError = '🔴 VITE_SUPABASE_ANON_KEY manquante. Vérifiez votre fichier .env.local ou configurez la clé dans l\'interface.';
+    console.error(supabaseConfigError);
+}
+
+// Fallback to avoid crash, but client will be non-functional
+export const supabase = createClient(
+    supabaseUrl || 'https://placeholder.supabase.co',
+    supabaseKey || 'placeholder'
+);
 
 // Helper pour sauvegarder la clé depuis l'UI (toujours utile en cas de changement)
 export const saveSupabaseKey = (key: string) => {

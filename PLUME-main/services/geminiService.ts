@@ -64,12 +64,20 @@ SENSORIEL|Question sur les sens (odeur, lumière) ?
 `;
 
 const parsePlumeResponse = (text: string): PlumeResponse => {
+  // 0. Pre-cleaning: Remove potential "thinking" or garbage before the first XML tag
+  // If the AI writes "Sure, here is the XML: <THINKING>...", we want to ignore the prefix.
+  let cleanText = text;
+  const firstTagIndex = text.search(/<(THINKING|CONVERSATION|NARRATIVE|METADATA|QUESTIONS)>/);
+  if (firstTagIndex > 0) {
+    cleanText = text.substring(firstTagIndex);
+  }
+
   // 1. Extraction via Regex XML robustes
-  const thinking = text.match(/<THINKING>([\s\S]*?)<\/THINKING>/i)?.[1]?.trim() || '';
-  const narrative = text.match(/<NARRATIVE>([\s\S]*?)<\/NARRATIVE>/i)?.[1]?.trim() || '';
-  const conversation = text.match(/<CONVERSATION>([\s\S]*?)<\/CONVERSATION>/i)?.[1]?.trim() || '';
-  const metadataStr = text.match(/<METADATA>([\s\S]*?)<\/METADATA>/i)?.[1]?.trim() || '{}';
-  const questionsStr = text.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/i)?.[1]?.trim() || '';
+  const thinking = cleanText.match(/<THINKING>([\s\S]*?)<\/THINKING>/i)?.[1]?.trim() || '';
+  const narrative = cleanText.match(/<NARRATIVE>([\s\S]*?)<\/NARRATIVE>/i)?.[1]?.trim() || '';
+  const conversation = cleanText.match(/<CONVERSATION>([\s\S]*?)<\/CONVERSATION>/i)?.[1]?.trim() || '';
+  const metadataStr = cleanText.match(/<METADATA>([\s\S]*?)<\/METADATA>/i)?.[1]?.trim() || '{}';
+  const questionsStr = cleanText.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/i)?.[1]?.trim() || '';
 
   // 2. Parsing Metadata
   let parsedData = {
@@ -135,9 +143,15 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
     });
   }
 
+  // Fallback: If no conversation extracted but text exists and no tags found, use raw text (for backward compatibility or errors)
+  let finalConversation = conversation;
+  if (!finalConversation && !narrative && !thinking && firstTagIndex === -1 && text.trim().length > 0) {
+    finalConversation = text.trim();
+  }
+
   return {
     narrative: narrative,
-    conversation: conversation,
+    conversation: finalConversation,
     data: parsedData as any,
     suggestion: null,
     questions: parsedQuestions,
