@@ -23,10 +23,10 @@ const LifeUniverse: React.FC<LifeUniverseProps> = ({ userId, userProfile, messag
         loadLifeUniverse();
     }, [userId, messages]);
 
-    const loadLifeUniverse = async () => {
+    const loadLifeUniverse = async (forceRefresh: boolean = false) => {
         setIsLoading(true);
         try {
-            const universeData = await analyzeLifeUniverse(userId, userProfile, messages);
+            const universeData = await analyzeLifeUniverse(userId, userProfile, messages, forceRefresh);
             setData(universeData);
         } catch (error) {
             console.error('Error loading Life Universe:', error);
@@ -36,7 +36,7 @@ const LifeUniverse: React.FC<LifeUniverseProps> = ({ userId, userProfile, messag
     };
 
     const handleRefresh = () => {
-        loadLifeUniverse();
+        loadLifeUniverse(true);
     };
 
     if (isLoading || !data) {

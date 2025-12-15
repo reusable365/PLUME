@@ -12,9 +12,10 @@ interface MessageBubbleProps {
     onDeleteMessage: (messageId: string) => void;
     onInitiateRegenerate: (messageId: string) => void; // Changed from onRegenerate
     isLastAssistantMessage: boolean;
+    existingIdeas?: Array<{ title: string; content: string }>;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSaveIdea, onQuestionClick, onAddToDraft, onDeleteMessage, onInitiateRegenerate, isLastAssistantMessage }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSaveIdea, onQuestionClick, onAddToDraft, onDeleteMessage, onInitiateRegenerate, isLastAssistantMessage, existingIdeas = [] }) => {
     const isUser = message.role === 'user';
 
     if (message.isDivider) {
@@ -318,6 +319,48 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSaveIdea, onQu
                         ) : null}
                     </div>
                 )}
+
+                {/* Suggestion d'idée pour le Coffre */}
+                {plumeContent.suggestion && !isDrafted && !isSynthesized && (() => {
+                    // Vérifie si la suggestion existe déjà dans le coffre
+                    const alreadyExists = existingIdeas.some(idea =>
+                        idea.title.toLowerCase().trim() === plumeContent.suggestion!.title.toLowerCase().trim()
+                    );
+                    return !alreadyExists; // N'affiche que si elle n'existe pas déjà
+                })() && (
+                        <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <IconSparkles className="w-4 h-4 text-amber-500" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">
+                                            Suggestion pour le Coffre à Idées
+                                        </span>
+                                    </div>
+                                    <div className="text-sm font-semibold text-ink-800 mb-1">
+                                        {plumeContent.suggestion.title}
+                                    </div>
+                                    <div className="text-xs text-ink-600 mb-2">
+                                        {plumeContent.suggestion.content}
+                                    </div>
+                                    <span className="inline-block px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold uppercase rounded">
+                                        {plumeContent.suggestion.tag}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => onSaveIdea(
+                                        plumeContent.suggestion!.title,
+                                        plumeContent.suggestion!.content,
+                                        plumeContent.suggestion!.tag
+                                    )}
+                                    className="flex items-center gap-1 px-3 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-all shadow-md whitespace-nowrap"
+                                >
+                                    <IconCheck className="w-3.5 h-3.5" />
+                                    Ajouter
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
             </div>
         </div>

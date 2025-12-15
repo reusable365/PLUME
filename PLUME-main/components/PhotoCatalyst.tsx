@@ -195,7 +195,7 @@ const PhotoCatalyst: React.FC<PhotoCatalystProps> = ({ userId, userContext, onCo
             };
 
             await savePhotoMetadata(userId, updatedPhoto);
-            const prompt = generateNarrativePrompt(updatedPhoto, selectedAngle);
+            const prompt = generateNarrativePrompt(updatedPhoto, selectedAngle, !!audioBlob);
 
             const result: PhotoCatalystResult = {
                 photo: updatedPhoto,

@@ -144,7 +144,70 @@ export const saveSupabaseKey = (key: string) => {
  *   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
  * 
  * -- 6. Remplissage des profils pour les utilisateurs existants
- * INSERT INTO public.profiles (id)
  * SELECT id FROM auth.users
  * ON CONFLICT (id) DO NOTHING;
+ * 
+ * -- 7. TABLES POUR UNIVERS DE VIE (NOUVEAU)
+ * 
+ * CREATE TABLE IF NOT EXISTS public.places (
+ *   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+ *   name text NOT NULL,
+ *   type text,
+ *   city text,
+ *   country text,
+ *   period_start text,
+ *   period_end text,
+ *   ai_description text,
+ *   ai_generated boolean DEFAULT false,
+ *   created_at timestamptz DEFAULT now(),
+ *   UNIQUE(user_id, name)
+ * );
+ * 
+ * CREATE TABLE IF NOT EXISTS public.relationships (
+ *   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+ *   person_name text NOT NULL,
+ *   relationship_type text,
+ *   relationship_subtype text,
+ *   met_date text,
+ *   ai_summary text,
+ *   ai_personality_traits text[],
+ *   created_at timestamptz DEFAULT now(),
+ *   UNIQUE(user_id, person_name)
+ * );
+ * 
+ * CREATE TABLE IF NOT EXISTS public.timeline_events (
+ *   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+ *   title text NOT NULL,
+ *   description text,
+ *   event_type text,
+ *   date_start text,
+ *   ai_generated boolean DEFAULT false,
+ *   created_at timestamptz DEFAULT now()
+ * );
+ * 
+ * CREATE TABLE IF NOT EXISTS public.life_periods (
+ *   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+ *   name text NOT NULL,
+ *   period_type text,
+ *   start_year int,
+ *   end_year int,
+ *   ai_summary text,
+ *   ai_themes text[],
+ *   created_at timestamptz DEFAULT now()
+ * );
+ * 
+ * -- Sécurité RLS pour Univers de Vie
+ * ALTER TABLE public.places ENABLE ROW LEVEL SECURITY;
+ * ALTER TABLE public.relationships ENABLE ROW LEVEL SECURITY;
+ * ALTER TABLE public.timeline_events ENABLE ROW LEVEL SECURITY;
+ * ALTER TABLE public.life_periods ENABLE ROW LEVEL SECURITY;
+ * 
+ * CREATE POLICY "Users can manage their own places" ON public.places FOR ALL USING (auth.uid() = user_id);
+ * CREATE POLICY "Users can manage their own relationships" ON public.relationships FOR ALL USING (auth.uid() = user_id);
+ * CREATE POLICY "Users can manage their own timeline" ON public.timeline_events FOR ALL USING (auth.uid() = user_id);
+ * CREATE POLICY "Users can manage their own periods" ON public.life_periods FOR ALL USING (auth.uid() = user_id);
  */

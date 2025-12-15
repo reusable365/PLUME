@@ -86,7 +86,10 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                         chapters: bookData.structure.chapters || [],
                         totalEstimatedPages: bookData.structure.totalEstimatedPages || 0,
                         rationale: bookData.rationale,
-                        generatedAt: bookData.created_at
+
+                        generatedAt: bookData.created_at,
+                        coverImage: bookData.structure.coverImage,
+                        coverStyle: bookData.structure.coverStyle
                     });
                 } else {
                     if (bookStructure.chapters.length === 0) {
@@ -181,7 +184,9 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                 rationale: bookStructure.rationale,
                 structure: {
                     chapters: bookStructure.chapters,
-                    totalEstimatedPages: bookStructure.totalEstimatedPages
+                    totalEstimatedPages: bookStructure.totalEstimatedPages,
+                    coverImage: bookStructure.coverImage,
+                    coverStyle: bookStructure.coverStyle
                 },
                 is_active: true
             };
@@ -587,66 +592,96 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
     // --- Render Helpers ---
 
     const renderPreview = () => (
-        <div className="max-w-4xl mx-auto bg-white shadow-2xl min-h-screen p-16 text-ink-900 font-serif leading-relaxed">
-            {/* Title Page */}
-            <div className="text-center py-20 border-b border-stone-100 mb-20">
-                <h1 className="text-6xl font-bold mb-6">{bookStructure.title}</h1>
-                <p className="text-2xl italic text-stone-500">{bookStructure.subtitle}</p>
-            </div>
+        <div className="max-w-4xl mx-auto bg-white shadow-2xl min-h-screen text-ink-900 font-serif leading-relaxed print:shadow-none">
+            {/* Cover Page */}
+            <div className={`relative h-[800px] w-full flex flex-col justify-center items-center text-center mb-24 overflow-hidden ${!bookStructure.coverImage ? 'bg-[#fdfbf7] border-b-8 border-stone-800' : ''}`}>
 
-            {/* Table of Contents */}
-            <div className="mb-20">
-                <h2 className="text-2xl font-bold mb-8 text-center uppercase tracking-widest">Table des Matières</h2>
-                <div className="space-y-4">
-                    {bookStructure.chapters.map((chap, i) => (
-                        <div key={chap.id} className="flex justify-between border-b border-stone-100 pb-2">
-                            <span>{i + 1}. {chap.title}</span>
-                            <span className="text-stone-400">p. {i * 10 + 5}</span>
+                {/* Background Image */}
+                {bookStructure.coverImage && (
+                    <>
+                        <div className="absolute inset-0 z-0">
+                            <img src={bookStructure.coverImage} alt="Cover" className="w-full h-full object-cover" />
                         </div>
-                    ))}
+                        <div className="absolute inset-0 bg-stone-900/40 z-10 backdrop-blur-[2px]"></div>
+                    </>
+                )}
+
+                {/* Cover Content */}
+                <div className="relative z-20 p-12 border-4 border-double border-white/30 h-[90%] w-[90%] flex flex-col justify-between">
+                    <div className="pt-20">
+                        <p className={`text-sm tracking-[0.3em] uppercase mb-8 ${bookStructure.coverImage ? 'text-white/80' : 'text-stone-500'}`}>Mémoires</p>
+                        <h1 className={`text-7xl font-bold mb-6 ${bookStructure.coverImage ? 'text-white drop-shadow-lg' : 'text-ink-900'}`}>{bookStructure.title}</h1>
+                        <div className={`w-32 h-1 mx-auto mb-6 ${bookStructure.coverImage ? 'bg-white/80' : 'bg-accent'}`}></div>
+                        <p className={`text-3xl italic ${bookStructure.coverImage ? 'text-white/90' : 'text-stone-500'}`}>{bookStructure.subtitle}</p>
+                    </div>
+                    <div className="pb-10">
+                        <p className={`font-medium ${bookStructure.coverImage ? 'text-white' : 'text-stone-800'}`}>Par {userId ? "L'Auteur" : "..."}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Chapters */}
-            {bookStructure.chapters.map((chapter, i) => (
-                <div key={chapter.id} className="mb-24">
-                    <div className="text-center mb-12">
-                        <span className="text-stone-400 text-sm uppercase tracking-widest">Chapitre {i + 1}</span>
-                        <h2 className="text-4xl font-bold mt-2">{chapter.title}</h2>
-                        {chapter.description && <p className="text-stone-500 italic mt-4">{chapter.description}</p>}
-                    </div>
-
-                    <div className="space-y-12">
-                        {chapter.memoryIds.map(memId => {
-                            const mem = getSouvenirById(memId);
-                            if (!mem) return null;
-                            return (
-                                <div key={memId} className="prose prose-stone max-w-none">
-                                    <h3 className="text-2xl font-bold mb-4">{mem.title}</h3>
-                                    {/* Image Display */}
-                                    {mem.imageUrl && (
-                                        <img
-                                            src={mem.imageUrl}
-                                            alt={mem.title}
-                                            className="w-full h-64 object-cover rounded-lg mb-6 shadow-md"
-                                        />
-                                    )}
-
-                                    <div className="whitespace-pre-wrap text-lg text-justify">
-                                        {mem.narrative || mem.content}
-                                    </div>
-                                    <div className="flex justify-center mt-8">
-                                        <span className="text-accent text-xl">***</span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    {/* Page Break for next chapter */}
-                    <div className="h-24"></div>
+            <div className="px-16 pb-16">
+                {/* Title Page (Internal) */}
+                <div className="text-center py-20 border-b border-stone-100 mb-20">
+                    <h1 className="text-6xl font-bold mb-6">{bookStructure.title}</h1>
+                    <p className="text-2xl italic text-stone-500">{bookStructure.subtitle}</p>
                 </div>
-            ))}
-        </div>
+
+                {/* Table of Contents */}
+                <div className="mb-20">
+                    <h2 className="text-2xl font-bold mb-8 text-center uppercase tracking-widest">Table des Matières</h2>
+                    <div className="space-y-4">
+                        {bookStructure.chapters.map((chap, i) => (
+                            <div key={chap.id} className="flex justify-between border-b border-stone-100 pb-2">
+                                <span>{i + 1}. {chap.title}</span>
+                                <span className="text-stone-400">p. {i * 10 + 5}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Chapters */}
+                {bookStructure.chapters.map((chapter, i) => (
+                    <div key={chapter.id} className="mb-24">
+                        <div className="text-center mb-12">
+                            <span className="text-stone-400 text-sm uppercase tracking-widest">Chapitre {i + 1}</span>
+                            <h2 className="text-4xl font-bold mt-2">{chapter.title}</h2>
+                            {chapter.description && <p className="text-stone-500 italic mt-4">{chapter.description}</p>}
+                        </div>
+
+                        <div className="space-y-12">
+                            {chapter.memoryIds.map(memId => {
+                                const mem = getSouvenirById(memId);
+                                if (!mem) return null;
+                                return (
+                                    <div key={memId} className="prose prose-stone max-w-none">
+                                        <h3 className="text-2xl font-bold mb-4">{mem.title}</h3>
+                                        {/* Image Display */}
+                                        {mem.imageUrl && (
+                                            <img
+                                                src={mem.imageUrl}
+                                                alt={mem.title}
+                                                className="w-full h-64 object-cover rounded-lg mb-6 shadow-md"
+                                            />
+                                        )}
+
+                                        <div className="whitespace-pre-wrap text-lg text-justify">
+                                            {mem.narrative || mem.content}
+                                        </div>
+                                        <div className="flex justify-center mt-8">
+                                            <span className="text-accent text-xl">***</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        {/* Page Break for next chapter */}
+                        <div className="h-24"></div>
+                    </div>
+                ))}
+                {/* End of content wrapper (padding fix) */}
+            </div>
+        </div >
     );
 
     return (

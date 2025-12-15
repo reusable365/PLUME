@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DigitalMemory } from '../types';
-import { IconImage, IconUsers, IconBriefcase, IconFeather, IconHeart, IconMapPin, IconSparkles, IconQuote } from './Icons';
+import { IconImage, IconUsers, IconBriefcase, IconFeather, IconHeart, IconMapPin, IconSparkles, IconQuote, IconShare2 } from './Icons';
 
 interface DigitalMemoryTimelineProps {
     memories: DigitalMemory[];
@@ -81,11 +81,26 @@ const MemoryCard: React.FC<{ memory: DigitalMemory, index: number, onRaconter: (
                     </div>
                 )}
 
-                {/* Localisation (si dispo) */}
+                {/* Localisation (si dispo) ou Source Link */}
                 {memory.location && (
-                    <div className="absolute bottom-4 left-4 text-white/90 text-xs font-medium flex items-center gap-1.5 drop-shadow-md z-20">
-                        <IconMapPin className="w-3.5 h-3.5" />
-                        {memory.location}
+                    <div className="absolute bottom-4 left-4 z-20">
+                        {memory.location.startsWith('http') ? (
+                            <a
+                                href={memory.location}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white/90 text-xs font-medium flex items-center gap-1.5 transition-colors border border-white/30"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <IconShare2 className="w-3 H-3" />
+                                Voir le post
+                            </a>
+                        ) : (
+                            <div className="text-white/90 text-xs font-medium flex items-center gap-1.5 drop-shadow-md">
+                                <IconMapPin className="w-3.5 h-3.5" />
+                                {memory.location}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

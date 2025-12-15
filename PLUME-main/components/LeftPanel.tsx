@@ -37,13 +37,27 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
 }) => {
     return (
         <div className={`left-panel ${isCollapsed ? 'collapsed' : ''}`}>
-            {/* Toggle Button */}
+            {/* Toggle Button - ENHANCED */}
             <button
-                className="panel-toggle-btn"
+                className={`panel-toggle-btn ${!isCollapsed ? 'animate-custom-pulse' : ''}`}
                 onClick={onToggle}
                 title={isCollapsed ? 'Ouvrir le panneau' : 'Fermer le panneau'}
+                style={{
+                    width: '40px',
+                    height: '40px',
+                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.15), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                    transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'scale(1.15)';
+                    e.currentTarget.style.boxShadow = '0 10px 15px -3px rgb(0 0 0 / 0.2), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.15), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
+                }}
             >
-                {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+                {isCollapsed ? <ChevronRight size={28} /> : <ChevronLeft size={28} />}
             </button>
 
             {/* Panel Content */}

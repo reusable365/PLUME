@@ -67,7 +67,7 @@ export interface ExtractedData {
 }
 
 export interface QuestionOption {
-  type: 'emotion' | 'action' | 'descriptif';
+  type: 'emotion' | 'action' | 'sensoriel';
   label: string; // ex: "Focus Émotion"
   text: string; // La question complète
 }
@@ -120,7 +120,7 @@ export interface AppState {
   };
 }
 
-export type ViewType = 'landing' | 'studio' | 'gallery' | 'manuscript' | 'dashboard' | 'boutique' | 'universe' | 'digital-memory' | 'guest_prototype';
+export type ViewType = 'landing' | 'studio' | 'gallery' | 'manuscript' | 'dashboard' | 'boutique' | 'universe' | 'digital-memory' | 'guest_prototype' | 'guest_view';
 
 export interface PhotoAnalysis {
   description: string;          // Description générale de la photo

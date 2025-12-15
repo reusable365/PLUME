@@ -1,7 +1,7 @@
 
 
 import React, { useState } from 'react';
-import { IconFeather, IconBook, IconClock, IconLock } from './Icons';
+import { IconFeather, IconBook, IconClock, IconLock, IconCamera } from './Icons';
 import AuthModal from './AuthModal';
 import ExamplesSection from './ExamplesSection';
 import FAQSection from './FAQSection';
@@ -56,41 +56,44 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
       {/* Features Grid */}
       <section className="py-20 px-6 max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <span className="text-amber-700 font-bold tracking-widest text-xs uppercase">Fonctionnalités Premium</span>
-          <h2 className="font-serif text-4xl font-bold text-ink-900 mt-2">Votre Assistant Biographe Personnel</h2>
+          <span className="text-amber-700 font-bold tracking-widest text-xs uppercase">Une Technologie Unique</span>
+          <h2 className="font-serif text-4xl font-bold text-ink-900 mt-2">Bien plus qu'un simple éditeur de texte</h2>
+          <p className="mt-4 text-ink-500 max-w-2xl mx-auto">Plume combine une maïeutique bienveillante à une analyse sémantique de pointe pour transformer le chaos de la mémoire en une œuvre d'art.</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8">
-          {/* Feature 1 */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-shadow">
-            <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-amber-700 mb-6">
-              <IconFeather className="w-6 h-6" />
+          {/* Feature 1: L'Architecte */}
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
+            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-700 mb-6 shadow-inner">
+              <IconFeather className="w-7 h-7" />
             </div>
-            <h3 className="font-serif text-xl font-bold mb-3">Atelier de Rédaction IA</h3>
-            <p className="text-ink-500 leading-relaxed">
-              La maïeutique digitale. PLUME vous pose les bonnes questions pour faire émerger vos souvenirs les plus précieux et les rédige avec style.
+            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">Plume, votre Architecte</h3>
+            <p className="text-ink-500 leading-relaxed text-sm">
+              Il ne vous laisse jamais seul face à la page blanche. Grâce à sa <strong>maïeutique active</strong>, il vous pose les questions qui débloquent les souvenirs enfouis, s'adaptant à votre ton et votre rythme.
+              <br /><span className="text-xs font-bold text-amber-600 mt-2 block uppercase">Modes : Émotion • Action • Sensoriel</span>
             </p>
           </div>
 
-          {/* Feature 2 */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-shadow">
-            <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-amber-700 mb-6">
-              <IconClock className="w-6 h-6" />
+          {/* Feature 2: PhotoCatalyst */}
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
+            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-700 mb-6 shadow-inner">
+              <IconCamera className="w-7 h-7" />
             </div>
-            <h3 className="font-serif text-xl font-bold mb-3">Chronologie Intelligente</h3>
-            <p className="text-ink-500 leading-relaxed">
-              L'IA extrait automatiquement les dates et événements pour construire une frise interactive.
+            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">PhotoCatalyst™</h3>
+            <p className="text-ink-500 leading-relaxed text-sm">
+              Une image vaut mille mots, mais Plume vous aide à les écrire. Notre IA de vision <strong>analyse vos photos</strong> pour en extraire les lieux, les époques et même les émotions, servant de point de départ instantané à l'écriture.
             </p>
           </div>
 
-          {/* Feature 3 */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-shadow">
-            <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-amber-700 mb-6">
-              <IconBook className="w-6 h-6" />
+          {/* Feature 3: Le Sanctuaire */}
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
+            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-700 mb-6 shadow-inner">
+              <IconBook className="w-7 h-7" />
             </div>
-            <h3 className="font-serif text-xl font-bold mb-3">Coffre à Souvenirs</h3>
-            <p className="text-ink-500 leading-relaxed">
-              Centralisez photos, personnages et thèmes. Une cartographie complète de votre entourage et de vos moments forts.
+            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">Le Sanctuaire</h3>
+            <p className="text-ink-500 leading-relaxed text-sm">
+              Vos souvenirs sont précieux. Plume les organise automatiquement dans une <strong>Boutique des Souvenirs</strong> interactive, classés par personnes, lieux et tags, prêts à être assemblés dans votre chef-d'œuvre final.
+              <br /><span className="text-xs font-bold text-emerald-600 mt-2 block uppercase">Score de Maturité Intégré</span>
             </p>
           </div>
         </div>

@@ -23,7 +23,8 @@ import SupportSection from './components/SupportSection';
 import { StudioView } from './components/StudioView';
 import { ValidationModal, ValidationData } from './components/ValidationModal';
 import { StyleSelector } from './components/StyleSelector';
-import { IconMicrophone, IconStopCircle, IconSettings, IconSend, IconBook, IconFeather, IconLayout, IconLogOut, IconUser, IconClock, IconMagic, IconBookOpen, IconCheck, IconScissors, IconX, IconRefresh, IconTarget, IconSearch, IconCamera, IconUsers, IconMapPin, IconHelp, IconSun, IconMoon, IconSunset, IconEye, IconEyeOff, IconVolume2, IconVolumeX, IconMap, IconSparkles, IconShare2 } from './components/Icons';
+import { IconMicrophone, IconStopCircle, IconSettings, IconSend, IconBook, IconFeather, IconLayout, IconLogOut, IconUser, IconClock, IconMagic, IconBookOpen, IconCheck, IconScissors, IconX, IconRefresh, IconTarget, IconSearch, IconCamera, IconUsers, IconMapPin, IconHelp, IconSun, IconMoon, IconSunset, IconEye, IconEyeOff, IconVolume2, IconVolumeX, IconMap, IconSparkles, IconShare2, IconCloud } from './components/Icons';
+import { GuestView } from './components/GuestView';
 import GuestMemoryCard from './components/GuestMemoryCard';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
@@ -146,6 +147,7 @@ const App: React.FC = () => {
     const [regenerationInfo, setRegenerationInfo] = useState<{ originalAssistantMessageId: string, originalUserPrompt: string } | null>(null);
 
     const [draftContent, setDraftContent] = useState('');
+    const [draftPhotos, setDraftPhotos] = useState<string[]>([]);
     const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -172,6 +174,7 @@ const App: React.FC = () => {
     const inputAudioContextRef = useRef<AudioContext | null>(null);
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const aiInstanceRef = useRef<GoogleGenAI | null>(null);
+    const loadingInProgress = useRef<boolean>(false); // 🔒 Guard against multiple loads
 
     const showToast = useCallback((message: string, type: 'success' | 'error', duration = 3000) => {
         setToast({ message, type });
@@ -202,10 +205,22 @@ const App: React.FC = () => {
     }, []);
 
     const loadUserData = async (authUser: any) => {
-        if (!authUser) return;
+        // 🔒 CRITICAL: Prevent multiple simultaneous loads (React StrictMode + Supabase triggers)
+        if (loadingInProgress.current) {
+            console.log('⏭️ loadUserData SKIPPED (already in progress)');
+            return;
+        }
+
+        loadingInProgress.current = true;
+        console.log('🔄 loadUserData CALLED for user:', authUser?.email);
+        if (!authUser) {
+            loadingInProgress.current = false;
+            return;
+        }
         setIsLoading(true);
 
         try {
+            console.time('⏱️ Loading profile');
             let profileData = null;
             let profileError = null;
 
@@ -221,6 +236,7 @@ const App: React.FC = () => {
             } catch (e) {
                 console.warn("Supabase profile fetch failed", e);
             }
+            console.timeEnd('⏱️ Loading profile');
 
             let currentUser: User = {
                 id: authUser.id,
@@ -259,7 +275,16 @@ const App: React.FC = () => {
 
             setUserProfile(currentUser);
 
-            const { data: msgs, error: msgError } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
+            console.time('⏱️ Loading messages');
+            // CRITICAL OPTIMIZATION: Only load recent messages (last 200) to improve performance
+            // We load in descending order and reverse to get the most recent session
+            const { data: msgs, error: msgError } = await supabase
+                .from('messages')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(200); // Only load last 200 messages instead of ALL
+            console.timeEnd('⏱️ Loading messages');
+
             let loadedMessages: ChatMessage[] = [];
             let initialAggregatedData = {
                 dates: new Set<string>(),
@@ -269,8 +294,12 @@ const App: React.FC = () => {
             };
 
             if (msgs && !msgError) {
-                // 1. Raw mapping & Parsing
-                let allMessages = msgs
+                console.time('⏱️ Parsing messages');
+                // Reverse since we loaded in descending order
+                const reversedMsgs = [...msgs].reverse();
+
+                // 1. Raw mapping & Parsing - OPTIMIZED with early filtering
+                let allMessages = reversedMsgs
                     .filter((m: any) => {
                         const content = m.content;
                         if (content && typeof content === 'object' && content.isArchived === true) return false;
@@ -283,7 +312,9 @@ const App: React.FC = () => {
                         if (m.role === 'user') {
                             const userContent = typeof m.content === 'string' ? m.content : (m.content as any).text || '';
                             const userIsSynthesized = typeof m.content === 'object' && m.content !== null && (m.content as any).isSynthesized === true;
-                            return { id: m.id, role: 'user' as const, content: userContent, timestamp: new Date(m.created_at).getTime(), isSynthesized: userIsSynthesized };
+                            // Fallback: Check both image_url column and content.imageUrl JSON field
+                            const recoveredImageUrl = m.image_url || (typeof m.content === 'object' ? (m.content as any).imageUrl : undefined);
+                            return { id: m.id, role: 'user' as const, content: userContent, timestamp: new Date(m.created_at).getTime(), isSynthesized: userIsSynthesized, imageUrl: recoveredImageUrl };
                         } else {
                             const plumeResponse: PlumeResponse = m.content as PlumeResponse;
                             if (!Array.isArray(plumeResponse.questions)) plumeResponse.questions = [];
@@ -316,6 +347,13 @@ const App: React.FC = () => {
                         }
                     }
                 });
+
+                // 4. Restore Draft Photos from Session
+                const loadedPhotos = loadedMessages
+                    .filter(m => m.imageUrl)
+                    .map(m => m.imageUrl as string);
+                setDraftPhotos(loadedPhotos);
+                console.timeEnd('⏱️ Parsing messages');
             }
 
             if (loadedMessages.length === 0) {
@@ -339,7 +377,10 @@ const App: React.FC = () => {
                 loadedMessages.push(welcomeMsg as ChatMessage);
             }
 
-            const { data: ideas } = await supabase.from('ideas').select('*').order('created_at', { ascending: false });
+            console.time('⏱️ Loading ideas');
+            const { data: ideas } = await supabase.from('ideas').select('*').order('created_at', { ascending: false }).limit(50); // Limit ideas too
+            console.timeEnd('⏱️ Loading ideas');
+
             const mappedIdeas = ideas ? ideas.map((i: any) => {
                 let title = i.title; let content = i.content; let tags = i.tags || [];
                 if (!title && content && typeof content === 'string' && content.startsWith('[')) {
@@ -350,17 +391,22 @@ const App: React.FC = () => {
             }) : [];
 
             try {
+                console.time('⏱️ Loading draft');
                 const { data: drafts } = await supabase.from('chapters').select('*').eq('user_id', authUser.id).eq('status', 'draft_workspace').order('updated_at', { ascending: false }).limit(1);
+                console.timeEnd('⏱️ Loading draft');
                 const draftData = drafts?.[0];
                 if (draftData) { setDraftContent(draftData.content || ''); setWorkspaceId(draftData.id); }
             } catch (e) { console.warn("Erreur chargement brouillon", e); }
 
+            console.log('✅ Data loaded - Messages:', loadedMessages.length, 'Ideas:', mappedIdeas.length);
             setState({ messages: loadedMessages, ideas: mappedIdeas, aggregatedData: initialAggregatedData });
+            console.log('✅ loadUserData COMPLETE');
         } catch (err) {
             console.error("Critical error loading user data:", err);
             showToast("Erreur de chargement des données. Vérifiez votre connexion.", 'error');
         } finally {
             setIsLoading(false);
+            loadingInProgress.current = false; // 🔓 Release guard
         }
     };
 
@@ -417,7 +463,13 @@ const App: React.FC = () => {
 
         try {
             // Save visible text to DB
-            await supabase.from('messages').insert({ user_id: session.user.id, role: 'user', content: { text: text, isSynthesized: false }, image_url: imageUrl });
+            // Store imageUrl in BOTH the dedicated column (if exists) AND the content JSON (as backup)
+            await supabase.from('messages').insert({
+                user_id: session.user.id,
+                role: 'user',
+                content: { text: text, isSynthesized: false, imageUrl: imageUrl },
+                image_url: imageUrl
+            });
 
             // 🌟 SACRED MODE: Skip AI
             if (isSacred) {
@@ -489,7 +541,19 @@ const App: React.FC = () => {
         } catch (error) {
             console.error(error);
             showToast("Erreur Gemini: " + (error as Error).message, 'error');
-            const errorMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: { narrative: "Une erreur de communication est survenue.", data: null, suggestion: null, questions: [{ type: 'action', label: 'Réessayer', text: "Pouvons-nous reprendre ?" }] } as PlumeResponse, timestamp: Date.now() };
+            // FIX: Do NOT put error text in 'narrative', otherwise it gets auto-compiled into the book!
+            const errorMsg: ChatMessage = {
+                id: uuidv4(),
+                role: 'assistant',
+                content: {
+                    narrative: "", // Empty narrative prevents auto-compile
+                    conversation: "Une erreur de communication est survenue. Veuillez réessayer.",
+                    data: null,
+                    suggestion: null,
+                    questions: [{ type: 'action', label: 'Réessayer', text: "Pouvons-nous reprendre ?" }]
+                } as PlumeResponse,
+                timestamp: Date.now()
+            };
             setState(prev => ({ ...prev, messages: [...prev.messages, errorMsg] }));
         } finally { setIsLoading(false); }
     }, [isLoading, session, state.messages, tone, length, fidelity, userProfile, showToast]);
@@ -533,88 +597,181 @@ const App: React.FC = () => {
     };
 
     const handleStartRecording = async () => {
-        if (!process.env.API_KEY) {
-            showToast("Clé API manquante pour l'enregistrement vocal.", 'error');
-            return;
-        }
         if (isLoading) return;
 
-        setIsLoading(true);
-        currentLiveInputTranscriptionRef.current = '';
-        setInput('');
+        // HYBRID APPROACH: Try Web Speech API first (FREE + FAST), fallback to Gemini
+        // @ts-ignore - webkitSpeechRecognition exists in Chrome/Edge/Safari
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            aiInstanceRef.current = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const inputAudioContext = new AudioContext({ sampleRate: 16000 });
-            inputAudioContextRef.current = inputAudioContext;
-            const source = inputAudioContext.createMediaStreamSource(stream);
-            const scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
-            scriptProcessorRef.current = scriptProcessor;
+        if (SpeechRecognition) {
+            // ✅ USE WEB SPEECH API (Native, Free, Fast)
+            console.log('🎤 Using Web Speech API (Native)');
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'fr-FR';
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
 
-            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-                const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-                const pcmBlob = createBlob(inputData);
-                liveSessionPromiseRef.current?.then((session) => {
-                    session.sendRealtimeInput({ media: pcmBlob });
-                });
+            let finalTranscript = '';
+
+            recognition.onstart = () => {
+                setIsRecording(true);
+                console.log('🎤 Web Speech: Recording started');
             };
 
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(inputAudioContext.destination);
+            recognition.onresult = (event) => {
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                        console.log('📝 Web Speech partial:', event.results[i][0].transcript);
+                    }
+                }
+            };
 
-            liveSessionPromiseRef.current = aiInstanceRef.current.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                callbacks: {
-                    onopen: () => {
-                        console.debug('Live session opened');
-                        setIsRecording(true);
-                        setIsLoading(false);
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        if (message.serverContent?.inputTranscription) {
-                            const text = message.serverContent.inputTranscription.text;
-                            currentLiveInputTranscriptionRef.current += text;
-                            setInput(currentLiveInputTranscriptionRef.current);
-                        }
-                        if (message.serverContent?.turnComplete) {
-                            const finalTranscription = currentLiveInputTranscriptionRef.current.trim();
-                            if (finalTranscription) {
-                                await triggerSend(finalTranscription);
+            recognition.onerror = (event) => {
+                console.error('❌ Web Speech error:', event.error);
+                setIsRecording(false);
+                if (event.error === 'no-speech') {
+                    showToast("Aucun son détecté. Parlez plus fort ou vérifiez votre micro.", 'error');
+                } else {
+                    showToast("Erreur d'enregistrement: " + event.error, 'error');
+                }
+            };
+
+            recognition.onend = async () => {
+                setIsRecording(false);
+                console.log('🏁 Web Speech: Recording ended');
+                console.log('📄 Final transcript:', finalTranscript.trim());
+
+                if (finalTranscript.trim()) {
+                    setIsLoading(true);
+                    const { cleanAndOptimizeTranscription } = await import('./services/transcriptionCleanerService');
+                    const cleanedText = await cleanAndOptimizeTranscription(finalTranscript.trim());
+                    setInput(cleanedText);
+                    showToast("✅ Transcription prête ! Vous pouvez relire et envoyer.", 'success');
+                    setIsLoading(false);
+                }
+            };
+
+            // Store recognition instance to stop it later
+            // @ts-ignore
+            window.currentRecognition = recognition;
+            recognition.start();
+
+        } else {
+            // ⚠️ FALLBACK: Use Gemini Audio API for unsupported browsers
+            console.log('⚠️ Web Speech API not supported, using Gemini fallback');
+
+            if (!process.env.GEMINI_API_KEY) {
+                showToast("Clé API Gemini manquante pour l'enregistrement vocal.", 'error');
+                return;
+            }
+
+            setIsLoading(true);
+            currentLiveInputTranscriptionRef.current = '';
+            setInput('');
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                aiInstanceRef.current = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                const inputAudioContext = new AudioContext({ sampleRate: 16000 });
+                inputAudioContextRef.current = inputAudioContext;
+                const source = inputAudioContext.createMediaStreamSource(stream);
+                const scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
+                scriptProcessorRef.current = scriptProcessor;
+
+                scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+                    const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                    const pcmBlob = createBlob(inputData);
+                    liveSessionPromiseRef.current?.then((session) => {
+                        session.sendRealtimeInput({ media: pcmBlob });
+                    });
+                };
+
+                source.connect(scriptProcessor);
+                scriptProcessor.connect(inputAudioContext.destination);
+
+                liveSessionPromiseRef.current = aiInstanceRef.current.live.connect({
+                    model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+                    callbacks: {
+                        onopen: () => {
+                            console.debug('Live session opened');
+                            setIsRecording(true);
+                            setIsLoading(false);
+                        },
+                        onmessage: async (message: LiveServerMessage) => {
+                            if (message.serverContent?.inputTranscription) {
+                                const text = message.serverContent.inputTranscription.text;
+                                currentLiveInputTranscriptionRef.current += text;
+                                console.log('📝 Transcription partielle:', text);
+                                // MODE DICTAPHONE : On n'affiche PAS la transcription en temps réel
+                                // setInput(currentLiveInputTranscriptionRef.current); ❌ SUPPRIMÉ
                             }
-                            currentLiveInputTranscriptionRef.current = '';
-                            handleStopRecording();
-                        }
-                    },
-                    onerror: (e: ErrorEvent) => {
-                        console.error('Live session error:', e);
-                        showToast("Erreur d'enregistrement vocal: " + e.message, 'error');
-                        handleStopRecording();
-                    },
-                    onclose: (e: CloseEvent) => {
-                        console.debug('Live session closed');
-                        setIsRecording(false);
-                    },
-                },
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    inputAudioTranscription: {},
-                    speechConfig: {
-                        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
-                    },
-                },
-            });
+                            if (message.serverContent?.turnComplete) {
+                                console.log('🏁 Transcription terminée');
+                                const finalTranscription = currentLiveInputTranscriptionRef.current.trim();
+                                console.log('📄 Texte brut:', finalTranscription);
 
-        } catch (err: any) {
-            console.error('Error starting recording:', err);
-            showToast("Erreur d'accès au microphone. Vérifiez les permissions: " + err.message, 'error');
-            setIsLoading(false);
-            setIsRecording(false);
+                                if (finalTranscription) {
+                                    // Nettoie et optimise
+                                    setIsLoading(true);
+                                    console.log('🧹 Début du nettoyage...');
+                                    const { cleanAndOptimizeTranscription } = await import('./services/transcriptionCleanerService');
+                                    const cleanedText = await cleanAndOptimizeTranscription(finalTranscription);
+                                    console.log('✨ Texte nettoyé:', cleanedText);
+
+                                    // MODE DICTAPHONE : On met le texte dans l'input, l'utilisateur valide
+                                    setInput(cleanedText);
+                                    console.log('✅ Texte mis dans input');
+                                    showToast("✅ Transcription prête ! Vous pouvez relire et envoyer.", 'success');
+                                    setIsLoading(false);
+
+                                    // ❌ SUPPRIMÉ : await triggerSend(cleanedText);
+                                } else {
+                                    console.warn('⚠️ Transcription vide !');
+                                }
+                                currentLiveInputTranscriptionRef.current = '';
+                                handleStopRecording();
+                            }
+                        },
+                        onerror: (e: ErrorEvent) => {
+                            console.error('Live session error:', e);
+                            showToast("Erreur d'enregistrement vocal: " + e.message, 'error');
+                            handleStopRecording();
+                        },
+                        onclose: (e: CloseEvent) => {
+                            console.debug('Live session closed');
+                            setIsRecording(false);
+                        },
+                    },
+                    config: {
+                        responseModalities: [Modality.AUDIO],
+                        inputAudioTranscription: {},
+                        speechConfig: {
+                            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+                        },
+                    },
+                });
+
+            } catch (err: any) {
+                console.error('Error starting recording:', err);
+                showToast("Erreur d'accès au microphone. Vérifiez les permissions: " + err.message, 'error');
+                setIsLoading(false);
+                setIsRecording(false);
+            }
         }
     };
 
     const handleStopRecording = useCallback(() => {
-        if (isRecording) {
+        // @ts-ignore
+        if (window.currentRecognition) {
+            // Stop Web Speech API
+            // @ts-ignore
+            window.currentRecognition.stop();
+            // @ts-ignore
+            window.currentRecognition = null;
+        } else if (isRecording) {
+            // Stop Gemini Audio API
             liveSessionPromiseRef.current?.then((session) => {
                 session.close();
             }).catch(e => console.error("Error closing live session:", e));
@@ -925,6 +1082,7 @@ const App: React.FC = () => {
 
             soundManager.playSuccess();
             showToast(`Souvenir gravé: "${data.title}"`, 'success');
+            setDraftPhotos([]); // Clear photos after saving souvenir
 
         } catch (err: any) {
             console.error("Error saving chapter:", err);
@@ -1204,6 +1362,7 @@ Sois bref et professionnel.`;
 
             // Reset workspace for new sequence
             setDraftContent('');
+            setDraftPhotos([]); // Clear photos from previous draft
             setWorkspaceId(null);
             lastCompiledMessageIdRef.current = null;
 
@@ -1279,6 +1438,7 @@ Sois bref et professionnel.`;
         // Display a clean message to the user, send the full prompt to AI
         const displayMessage = `Je souhaite explorer ce souvenir sous l'angle : ${result.selectedAngle === 'emotion' ? 'ÉMOTION' : result.selectedAngle === 'action' ? 'ACTION' : 'SENSORIEL'}.`;
         triggerSend(displayMessage, result.photo.url, result.generatedPrompt);
+        setDraftPhotos(prev => [...prev, result.photo.url]);
         showToast("Photo analysée ! Création du souvenir en cours...", 'success');
     };
 
@@ -1287,6 +1447,7 @@ Sois bref et professionnel.`;
 
     const handleGapAction = (gap: any) => {
         setCurrentView('studio');
+        setDraftPhotos([]); // Start fresh for this new exploration
         const prompt = `Je souhaite explorer cette zone d'ombre identifiée : "${gap.title}". ${gap.description}. ${gap.impact}. Pose-moi une question pour m'aider à démarrer.`;
         triggerSend(prompt);
     };
@@ -1299,6 +1460,7 @@ Sois bref et professionnel.`;
     const handleRaconterDigitalMemory = (memory: DigitalMemory) => {
         setCurrentView('studio');
         setShowLeftPanel(true);
+        setDraftPhotos([]); // Start fresh for this new memory
 
         const prompt = `[CONTEXTE_MEMOIRE_DIGITALE]
 Plateforme: ${memory.platform}
@@ -1385,11 +1547,17 @@ Date: ${dateStr}.
         // Skip dividers or messages without narrative
         if (lastMsg.isDivider) return;
         const content = lastMsg.content as PlumeResponse;
-        if (!content.narrative) return;
+        if (!content || !content.narrative) return;
 
-        // Append to draft content (Additive Logic)
         setDraftContent(prev => {
-            const separator = prev.trim() ? '\n\n' : '';
+            const normalizedDraft = prev.trim();
+            const normalizedNarrative = content.narrative.trim();
+
+            if (normalizedDraft.endsWith(normalizedNarrative)) {
+                return prev;
+            }
+
+            const separator = normalizedDraft ? '\n\n' : '';
             return prev + separator + content.narrative;
         });
 
@@ -1494,8 +1662,10 @@ Date: ${dateStr}.
                     <button onClick={() => setCurrentView('studio')} className={`nav-btn ${currentView === 'studio' ? 'active' : ''}`}><IconLayout className="w-5 h-5" />L'Atelier des Souvenirs</button>
                     <button onClick={() => setCurrentView('dashboard')} className={`nav-btn ${currentView === 'dashboard' ? 'active' : ''}`}><IconTarget className="w-5 h-5" />Tableau de Bord</button>
                     <button onClick={() => setCurrentView('boutique')} className={`nav-btn ${currentView === 'boutique' ? 'active' : ''}`}><IconSearch className="w-5 h-5" />La Boutique des Souvenirs</button>
+                    <button onClick={() => setCurrentView('digital-memory')} className={`nav-btn ${currentView === 'digital-memory' ? 'active' : ''}`}><IconCloud className="w-5 h-5" />Mémoire Digitale</button>
                     <button onClick={() => setCurrentView('universe')} className={`nav-btn ${currentView === 'universe' ? 'active' : ''}`}><IconMap className="w-5 h-5" />Univers de Vie</button>
                     <button onClick={() => setCurrentView('manuscript')} className={`nav-btn ${currentView === 'manuscript' ? 'active' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
+                    <button onClick={() => setCurrentView('guest_view')} className={`nav-btn ${currentView === 'guest_view' ? 'active' : ''}`}><IconUsers className="w-5 h-5" />Appel à Témoins</button>
                 </nav>
                 <div className="flex items-center gap-6">
                     <div className="hidden md:flex items-center bg-ink-100 rounded-full p-1 border border-ink-200 mr-2">
@@ -1531,6 +1701,7 @@ Date: ${dateStr}.
                 <button onClick={() => setCurrentView('boutique')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'boutique' ? 'text-accent' : ''}`}><IconSearch className="w-5 h-5" />Boutique</button>
                 <button onClick={() => setCurrentView('universe')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'universe' ? 'text-accent' : ''}`}><IconMap className="w-5 h-5" />Univers</button>
                 <button onClick={() => setCurrentView('manuscript')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'manuscript' ? 'text-accent' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
+                <button onClick={() => setCurrentView('guest_view')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'guest_view' ? 'text-accent' : ''}`}><IconUsers className="w-5 h-5" />Témoins</button>
             </div>
             <div className="flex flex-1 pt-20 h-full w-full overflow-y-auto">
                 {currentView === 'studio' && (
@@ -1556,6 +1727,9 @@ Date: ${dateStr}.
                         onCompilationRefresh={handleSynthesis}
                         autoCompile={handleAutoCompile}
                         aggregatedData={state.aggregatedData}
+                        // Photo props
+                        draftPhotos={draftPhotos}
+                        onRemovePhoto={(index) => setDraftPhotos(prev => prev.filter((_, i) => i !== index))}
                         sessionMessages={state.messages}
                         isSending={isLoading}
                         onSendMessage={async (text, isSacred) => { handleSendMessage(text, isSacred); return Promise.resolve(); }}
@@ -1573,6 +1747,10 @@ Date: ${dateStr}.
                         }}
                         onSave={handleInsertDraft}
                         onOpenPhotoCatalyst={() => setShowPhotoCatalyst(true)}
+                        onStartRecording={handleStartRecording}
+                        onStopRecording={handleStopRecording}
+                        isRecording={isRecording}
+                        voiceTranscript={input}
                     />
                 )}
                 {currentView === 'dashboard' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><PlumeDashboard userId={session.user.id} userProfile={userProfile} messages={state.messages} onGapClick={handleGapAction} /></div>)}
@@ -1615,6 +1793,7 @@ Date: ${dateStr}.
                     </div>
                 )}
                 {currentView === 'guest_prototype' && (<div className="w-full h-full overflow-y-auto"><GuestMemoryCard /></div>)}
+                {currentView === 'guest_view' && (<div className="w-full h-full overflow-y-auto"><GuestView /></div>)}
             </div>
             <style>{`
         .w-92 { width: 23rem; }

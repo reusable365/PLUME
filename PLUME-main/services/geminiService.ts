@@ -50,6 +50,14 @@ N'écris RIEN en dehors des balises.
 Si rien de nouveau, renvoie des tableaux vides.)
 </METADATA>
 
+<SUGGESTION>
+(Si l'auteur mentionne un sujet, lieu, période ou personne qui mérite d'être exploré plus tard,
+suggère de le mettre dans le Coffre à Idées.
+Format : "titre court|description brève|tag"
+Exemple : "La boucherie du grand-père|Mes passages quotidiens après l'école|FAMILLE"
+Si rien à suggérer, laisse VIDE.)
+</SUGGESTION>
+
 [RÈGLES DE STYLE]
 - Ton : Adapte-toi au paramètre fourni (ex: Authentique = oral, simple).
 - Fais sentir, ne dis pas (Show, don't tell).
@@ -64,6 +72,15 @@ SENSORIEL|Question sur les sens (odeur, lumière) ?
 `;
 
 const parsePlumeResponse = (text: string): PlumeResponse => {
+  // --- AGGRESSIVE CLEANING OF LEAKED REASONING ---
+  // The AI sometimes leaks its thinking process formatted as markdown lists or bold headers.
+  // We strip these specific patterns before any XML parsing.
+  text = text.replace(/^\s*-\s*\*\*Intention\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
+  text = text.replace(/^\s*-\s*\*\*Entités\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
+  text = text.replace(/^\s*-\s*\*\*Stratégie\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
+  text = text.replace(/Intention\s*:[^\n]*(\n|$)/gi, ''); // Single line leaks
+  text = text.replace(/Stratégie\s*:[^\n]*(\n|$)/gi, '');
+
   // 1. Robust Regex Extraction
   // We allow optional spaces inside tags: < CONVERSATION >
   const tagRegex = (tagName: string) => new RegExp(`<\\s*${tagName}\\s*>([\\s\\S]*?)(?:<\\/\\s*${tagName}\\s*>|$)`, 'i');
@@ -88,10 +105,14 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
   // We revert to standard robust regexes but with space tolerance
   // We use [\s\S]*? to be non-greedy.
   const thinking = text.match(/<\s*THINKING\s*>([\s\S]*?)<\/\s*THINKING\s*>/i)?.[1]?.trim() || '';
+
+  // Clean text from THINKING block to prevent fallback leakage
+  text = text.replace(/<\s*THINKING\s*>([\s\S]*?)<\/\s*THINKING\s*>/gi, '');
   const narrative = text.match(/<\s*NARRATIVE\s*>([\s\S]*?)<\/\s*NARRATIVE\s*>/i)?.[1]?.trim() || '';
   const conversation = text.match(/<\s*CONVERSATION\s*>([\s\S]*?)<\/\s*CONVERSATION\s*>/i)?.[1]?.trim() || '';
   const metadataStr = text.match(/<\s*METADATA\s*>([\s\S]*?)<\/\s*METADATA\s*>/i)?.[1]?.trim() || '{}';
   const questionsStr = text.match(/<\s*QUESTIONS\s*>([\s\S]*?)<\/\s*QUESTIONS\s*>/i)?.[1]?.trim() || '';
+  const suggestionStr = text.match(/<\s*SUGGESTION\s*>([\s\S]*?)<\/\s*SUGGESTION\s*>/i)?.[1]?.trim() || '';
 
   // 2. Parsing Metadata
   let parsedData = {
@@ -135,29 +156,14 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
         if (type.includes('emotion')) label = '❤️ Émotion';
         else if (type.includes('action')) label = '⚡ Action';
         else if (type.includes('sensoriel')) label = '👁️ Sensoriel';
-
-        if (text && text.trim()) {
-          parsedQuestions.push({
-            type: type as any,
-            label,
-            text: text.trim()
-          });
-        }
+        parsedQuestions.push({ type: type as 'emotion' | 'action' | 'sensoriel', label, text: text.trim() });
       }
     });
   }
 
   // PREVENT GARBAGE FALLBACK:
   // If we detected ANY of our standard tags in the text, we assume it's attempting to be XML.
-  // In that case, we DO NOT fall back to returning the whole string as conversation.
-  // This prevents the "Internal Monologue" from leaking into the UI if parsing fails.
   const hasXmlTags = /<\s*(THINKING|CONVERSATION|NARRATIVE|METADATA|QUESTIONS)\s*>/i.test(text);
-
-  let finalConversation = conversation;
-  // Only use raw text as fallback if NO XML tags were found AND text is not empty.
-  if (!finalConversation && !narrative && !thinking && !hasXmlTags && text.trim().length > 0) {
-    finalConversation = text.trim();
-  }
 
   if (parsedQuestions.length === 0) {
     parsedQuestions.push({
@@ -167,11 +173,64 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
     });
   }
 
+  // --- SANITIZATION ---
+  // Ensure narrative doesn't contain residual tags (AI hallucination fix)
+  let cleanNarrative = narrative;
+  if (cleanNarrative) {
+    // Remove any xml-like tags from the narrative content itself
+    cleanNarrative = cleanNarrative.replace(/<\/?\w+>/g, '').trim();
+
+    // Specific fix for "VIDE" leakage or direct instruction echo
+    const garbagePhrases = [
+      "VIDE.",
+      "vide.",
+      "vide",
+      "vide comme demandé.",
+      "Utiliser uniquement pour poser la question",
+      "L'angle d'exploration est",
+      "Je dois donc poser la question"
+    ];
+
+    // If any garbage phrase is detected at the start, we assume the whole block is polluted
+    // or just clear it if it's very short.
+    garbagePhrases.forEach(phrase => {
+      if (cleanNarrative.includes(phrase)) {
+        // If the narrative is mostly just instructions, kill it.
+        if (cleanNarrative.length < 300 || cleanNarrative.indexOf(phrase) < 50) {
+          cleanNarrative = '';
+        }
+      }
+    });
+
+    // If narrative turned out to be just tags or very short/garbage, clear it
+    if (cleanNarrative.length < 5) cleanNarrative = '';
+  }
+
+  let finalConversation = conversation;
+  // Only use raw text as fallback if NO XML tags were found AND text is not empty.
+  if (!finalConversation && !narrative && !thinking && !hasXmlTags && text.trim().length > 0) {
+    finalConversation = text.trim();
+  }
+
+  // Sanitize conversation to remove any leaked tags (e.g. </THINKING>)
+  if (finalConversation) {
+    finalConversation = finalConversation.replace(/<\/?\w+>/g, '').trim();
+  }
+
+  // Parse suggestion if present
+  let suggestion: { title: string; content: string; tag: string } | null = null;
+  if (suggestionStr) {
+    const parts = suggestionStr.split('|').map(p => p.trim());
+    if (parts.length === 3) {
+      suggestion = { title: parts[0], content: parts[1], tag: parts[2] };
+    }
+  }
+
   return {
-    narrative: narrative,
+    narrative: cleanNarrative,
     conversation: finalConversation,
     data: parsedData as any,
-    suggestion: null,
+    suggestion: suggestion,
     questions: parsedQuestions,
     isDrafted: false,
     thinking: thinking
@@ -319,9 +378,9 @@ export const generateKickstarter = async (
   </CONVERSATION>
   
   <QUESTIONS>
-  EMOTION|Question inspirante sur l'humeur du jour ?
-  ACTION|Question sur un événement récent ?
-  SENSORIEL|Question sur une image ou une odeur ?
+  EMOTION|❤️ Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?
+  ACTION|⚡ Quel événement a déclenché ce souvenir ?
+  SENSORIEL|👁️ Quelle image, odeur ou sensation vous revient en premier ?
   </QUESTIONS>
   `;
 
@@ -332,13 +391,30 @@ export const generateKickstarter = async (
     });
 
     const text = result.text || '';
-    return parsePlumeResponse(text);
+    const parsed = parsePlumeResponse(text);
+
+    // Ensure we always have the 3 axes
+    if (!parsed.questions || parsed.questions.length < 3) {
+      parsed.questions = [
+        { type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?' },
+        { type: 'action', label: '⚡ Action', text: 'Quel événement a déclenché ce souvenir ?' },
+        { type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image, odeur ou sensation vous revient en premier ?' }
+      ];
+    }
+
+    return parsed;
   } catch (e) {
+    logger.error("Kickstarter generation failed", e);
     return {
       narrative: '',
+      conversation: 'Bonjour ! Je suis prêt à recueillir votre prochain souvenir. Par quel angle souhaitez-vous commencer ?',
       data: null,
       suggestion: null,
-      questions: [{ type: 'action', label: 'Départ', text: 'Par quoi commençons-nous ?' }]
+      questions: [
+        { type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?' },
+        { type: 'action', label: '⚡ Action', text: 'Quel événement a déclenché ce souvenir ?' },
+        { type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image, odeur ou sensation vous revient en premier ?' }
+      ]
     } as PlumeResponse;
   }
 };
@@ -349,8 +425,8 @@ export const generateSouvenirTitle = async (
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const prompt = `Génère un titre court (max 6 mots) pour ce texte : "${narrative.substring(0, 300)}..."`;
-  const result = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: [{ parts: [{ text: prompt }] }] });
-  return result.text?.replace(/["']/g, '').trim().substring(0, 50) || 'Nouveau Souvenir';
+  const result = await ai.models.generateContent({ model: 'gemini-2.0-flash-exp', contents: [{ parts: [{ text: prompt }] }] });
+  return result.text?.replace(/[\"']/g, '').trim().substring(0, 50) || 'Nouveau Souvenir';
 };
 
 export const generateTitleAndMetadata = async (text: string) => {

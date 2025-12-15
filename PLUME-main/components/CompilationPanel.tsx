@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, Save, Edit3, Calendar, MapPin, Users, BookOpen, Heart } from 'lucide-react';
+import { Sparkles, RefreshCw, Save, Edit3, Calendar, MapPin, Users, BookOpen, Heart, X } from 'lucide-react';
 import { MaturityScore } from '../hooks/useMaturityScore';
 
 interface CompilationPanelProps {
@@ -11,6 +11,8 @@ interface CompilationPanelProps {
     onUndo?: () => void;
     canUndo?: boolean;
     maturityScore?: MaturityScore;
+    photos?: string[];
+    onRemovePhoto?: (index: number) => void;
 }
 
 export const CompilationPanel: React.FC<CompilationPanelProps> = ({
@@ -21,7 +23,9 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
     onSave,
     onUndo,
     canUndo,
-    maturityScore
+    maturityScore,
+    photos = [],
+    onRemovePhoto
 }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editedContent, setEditedContent] = useState(content);
@@ -170,6 +174,28 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
                     </div>
                 </div>
             )}
+
+
+            {/* Photos Section */}
+            {photos && photos.length > 0 && (
+                <div className="px-4 py-3 bg-white/30 border-b border-ink-100 flex gap-2 overflow-x-auto">
+                    {photos.map((url, index) => (
+                        <div key={index} className="relative group shrink-0">
+                            <img src={url} alt="Souvenir" className="h-20 w-auto rounded-lg shadow-sm border border-ink-100 object-cover" />
+                            {onRemovePhoto && (
+                                <button
+                                    onClick={() => onRemovePhoto(index)}
+                                    className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-ink-500 hover:text-red-500"
+                                    title="Supprimer la photo"
+                                >
+                                    <X size={12} />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
 
             {/* Content */}
             <div className="compilation-panel-content-wrapper">

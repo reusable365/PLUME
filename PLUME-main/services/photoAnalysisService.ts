@@ -209,7 +209,8 @@ Retourne UNIQUEMENT le JSON, sans texte avant ou après.
  */
 export const generateNarrativePrompt = (
     photo: Photo,
-    selectedAngle: 'emotion' | 'action' | 'sensory'
+    selectedAngle: 'emotion' | 'action' | 'sensory',
+    hasAudio: boolean = false
 ): string => {
     const analysis = photo.analysis;
     if (!analysis) {
@@ -227,11 +228,28 @@ export const generateNarrativePrompt = (
     if (analysis.detectedLocation) prompt += `Lieu : ${analysis.detectedLocation}\n`;
     if (analysis.mood) prompt += `Ambiance : ${analysis.mood}\n`;
 
+    // Si de l'audio a été fourni, la description contient probablement des éléments narratifs de l'utilisateur
+    if (hasAudio) {
+        prompt += `\n[IMPORTANT : CONTEXTE AUDIO]\n`;
+        prompt += `L'utilisateur a fourni une description vocale qui a été transcrite dans l'analyse ci-dessus. Utilise ces éléments pour comprendre l'histoire.\n`;
+    }
+
     prompt += `\n[CONSIGNE POUR PLUME]\n`;
     prompt += `Je souhaite explorer ce souvenir sous l'angle : ${selectedAngle.toUpperCase()}.\n`;
-    prompt += `Ne rédige pas le récit tout de suite. Pour m'aider à retrouver la mémoire, pose-moi simplement cette question :\n`;
-    prompt += `"${angleQuestion}"\n\n`;
-    prompt += `Attends ma réponse pour commencer à écrire le récit.`;
+
+    if (hasAudio) {
+        prompt += `Comme l'utilisateur a déjà commencé à raconter (via l'audio), tu peux EBAUCHER un début de récit dans <NARRATIVE> en te basant sur ses dires, tout en posant une question de relance dans <CONVERSATION>.\n`;
+        prompt += `Ta mission :\n`;
+        prompt += `1. Utilise <CONVERSATION> pour rebondir sur ce qu'il a dit et poser la question : "${angleQuestion}" (adapte-la au contexte déjà donné).\n`;
+        prompt += `2. Utilise <NARRATIVE> pour rédiger un PREMIER JET fluide et littéraire de ce qu'il a raconté. Ne mets PAS "vide", écris une vraie ébauche de 2-3 phrases.\n`;
+    } else {
+        prompt += `Ta mission est de me poser cette question précise pour lancer la conversation : "${angleQuestion}"\n\n`;
+        prompt += `[RÈGLE CRITIQUE XML]\n`;
+        prompt += `1. Utilise <CONVERSATION> pour me poser la question. Adopte un ton direct, naturel et chaleureux. Évite les phrases pompeuses du type "C'est une belle image" ou "Quelle photo magnifique". Sois concis.\n`;
+        prompt += `2. LAISSE IMPÉRATIVEMENT <NARRATIVE> VIDE. Le tag doit être EXACTEMENT : <NARRATIVE></NARRATIVE>. N'écris PAS "vide", n'écris PAS d'espace, n'écris RIEN.\n`;
+    }
+
+    prompt += `3. N'écris rien en dehors des balises XML.\n`;
 
     return prompt;
 };

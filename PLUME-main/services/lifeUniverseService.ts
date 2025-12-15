@@ -90,10 +90,11 @@ const universeCache: Record<string, { timestamp: number; data: LifeUniverseData 
 export const analyzeLifeUniverse = async (
     userId: string,
     userProfile: User | null,
-    messages: ChatMessage[]
+    messages: ChatMessage[],
+    forceRefresh: boolean = false
 ): Promise<LifeUniverseData> => {
     // Check cache
-    if (universeCache[userId] && Date.now() - universeCache[userId].timestamp < CACHE_TTL) {
+    if (!forceRefresh && universeCache[userId] && Date.now() - universeCache[userId].timestamp < CACHE_TTL) {
         logger.debug('Returning cached Life Universe data');
         return universeCache[userId].data;
     }
@@ -105,14 +106,14 @@ export const analyzeLifeUniverse = async (
             .map(m => (m.content as PlumeResponse).narrative)
             .filter(n => n && n.length > 0);
 
-        if (narratives.length < 3) {
+        if (narratives.length < 1) {
             // Not enough data, return empty structure
             return {
                 places: [],
                 relationships: [],
                 timeline: [],
                 periods: [],
-                insights: ["Continuez à écrire pour enrichir votre Univers de Vie !"]
+                insights: ["Écrivez au moins un souvenir pour activer l'Univers de Vie !"]
             };
         }
 
@@ -124,8 +125,12 @@ export const analyzeLifeUniverse = async (
             detectLifePeriods(narratives, userProfile)
         ]);
 
-        // 3. Save to database
-        await saveLifeUniverseData(userId, { places, relationships, timeline, periods });
+        // 3. Save to database (Non-blocking)
+        try {
+            await saveLifeUniverseData(userId, { places, relationships, timeline, periods });
+        } catch (dbError) {
+            console.warn("Could not save Life Universe data (tables might be missing). Showing in-memory results.", dbError);
+        }
 
         // 4. Generate insights
         const insights = await generateLifeInsights(places, relationships, timeline, periods, userProfile);

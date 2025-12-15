@@ -38,6 +38,13 @@ interface StudioViewProps {
     canUndo?: boolean;
     onSave?: () => void;
     onOpenPhotoCatalyst?: () => void;
+    draftPhotos?: string[];
+    onRemovePhoto?: (index: number) => void;
+    // Voice Recording
+    onStartRecording?: () => void;
+    onStopRecording?: () => void;
+    isRecording?: boolean;
+    voiceTranscript?: string; // Transcription from voice recording
 }
 
 export const StudioView: React.FC<StudioViewProps> = ({
@@ -70,11 +77,25 @@ export const StudioView: React.FC<StudioViewProps> = ({
     onUndo,
     canUndo,
     onSave,
-    onOpenPhotoCatalyst
+    onOpenPhotoCatalyst,
+    draftPhotos,
+    onRemovePhoto,
+    onStartRecording,
+    onStopRecording,
+    isRecording,
+    voiceTranscript
 }) => {
     const [showLeftPanel, setShowLeftPanel] = useState(true);
     const [input, setInput] = useState('');
     const [isSacred, setIsSacred] = useState(false);
+
+    // Sync voice transcript to input
+    useEffect(() => {
+        if (voiceTranscript) {
+            setInput(voiceTranscript);
+            console.log('🎤 Voice transcript synced to input:', voiceTranscript);
+        }
+    }, [voiceTranscript]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -92,11 +113,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
         setInput('');
 
         // Pass isSacred flag
-        const result = await onSendMessage(text, isSacred);
-        if (result) {
-            // Trigger auto-compile with the updated history
-            autoCompile([...sessionMessages, result.userMsg, result.aiMsg]);
-        }
+        // Pass isSacred flag
+        await onSendMessage(text, isSacred);
 
         // Note: isSacred intentionally NOT reset here to keep mode active
     };
@@ -107,10 +125,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
         onConvertIdea(idea.id);
 
         const autoPrompt = `Je sélectionne cette idée de mon coffre: "${idea.title || 'Note'}".Contenu : "${idea.content}".Analyse et guide-moi.`;
-        const result = await onSendMessage(autoPrompt);
-        if (result) {
-            autoCompile([result.userMsg, result.aiMsg]);
-        }
+        await onSendMessage(autoPrompt);
     };
 
     return (
@@ -164,6 +179,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                 onDeleteMessage={() => { }}
                                 onInitiateRegenerate={() => { }}
                                 isLastAssistantMessage={msg.role === 'assistant' && index === sessionMessages.length - 1}
+                                existingIdeas={ideas.map(i => ({ title: i.title || '', content: i.content }))}
                             />
                         </div>
                     ))}
@@ -184,6 +200,16 @@ export const StudioView: React.FC<StudioViewProps> = ({
 
                 {/* Input Area */}
                 <div className="w-full bg-white border-t border-ink-100 p-4 shadow-[0_-5px_20px_rgba(0,0,0,0.03)] z-20 mb-16 md:mb-0">
+                    {/* Recording Indicator */}
+                    {isRecording && (
+                        <div className="max-w-5xl mx-auto mb-3 px-4 py-3 bg-red-50 border-2 border-red-200 rounded-lg flex items-center gap-3 animate-fade-in">
+                            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                            <span className="text-sm font-semibold text-red-700">
+                                🎤 Enregistrement en cours... Parlez librement, cliquez à nouveau pour arrêter.
+                            </span>
+                        </div>
+                    )}
+
                     <div className="max-w-5xl mx-auto relative group bg-white border-2 border-ink-100 rounded-2xl focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/10 transition-all shadow-sm hover:shadow-md">
                         <textarea
                             ref={inputRef}
@@ -209,6 +235,21 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                </button>
+
+                                {/* Voice Recording Button */}
+                                <button
+                                    onClick={() => isRecording ? onStopRecording?.() : onStartRecording?.()}
+                                    disabled={isSending}
+                                    className={`p-2 md:p-2.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isRecording
+                                        ? 'bg-red-500 text-white animate-pulse'
+                                        : 'bg-ink-50 text-ink-600 hover:bg-accent/10 hover:text-accent'
+                                        }`}
+                                    title={isRecording ? "Arrêter l'enregistrement" : "Enregistrement vocal"}
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                                     </svg>
                                 </button>
 
@@ -263,6 +304,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
                     onSave={onSave}
                     onUndo={onUndo}
                     canUndo={canUndo}
+                    photos={draftPhotos}
+                    onRemovePhoto={onRemovePhoto}
                 />
             </div>
         </div>

@@ -56,22 +56,38 @@ Recherche sur le web et extrais les informations suivantes (si disponibles publi
 3. **Centres d'intérêt** : Thématiques récurrentes, passions, hobbies
 4. **Événements marquants** : Publications importantes, réalisations, voyages
 5. **Style narratif** : Ton utilisé, émotions exprimées, thèmes favoris
-6. **Chronologie** : Périodes de vie identifiables (études, carrière, voyages)
+6. **Chronologie détaillée** : Périodes de vie identifiables avec leurs sources visuelles si possible.
 
 Retourne un résumé structuré en JSON avec ces clés :
 \`\`\`json
 {
-  "imageUrl": "URL_DE_L_IMAGE_TROUVEE",
+  "imageUrl": "URL_IMAGE_PROFIL",
   "bio": "Résumé biographique court",
-  "timeline": [{"year": "2020", "event": "Début chez X"}],
+  "timeline": [
+    {
+      "year": "2023", 
+      "event": "Participation à la COP28", 
+      "imageUrl": "URL_IMAGE_SPECIFIQUE_EVENT", 
+      "sourceUrl": "URL_SOURCE"
+    }
+  ],
   "themes": ["Voyage", "Tech", "Famille"],
   "tone": "Inspirant/Nostalgique/Professionnel",
-  "keyMoments": ["Premier marathon en 2019", "Voyage au Japon en 2021"],
+  "keyMoments": [
+    {
+      "description": "Voyage au Japon", 
+      "imageUrl": "URL_IMAGE_JAPON", 
+      "sourceUrl": "URL_SOURCE"
+    }
+  ],
   "narrativeAngles": ["Parle de ta reconversion", "Raconte ton voyage initiatique"]
 }
 \`\`\`
 
-IMPORTANT : Ne retourne que des informations PUBLIQUES. Si le profil est privé ou inaccessible, indique-le. Si tu ne trouves pas d'image, laisse le champ imageUrl vide.`;
+IMPORTANT : 
+- Cherche activement des URLs d'images PUBLIQUES pour chaque événement (tumbnails, articles de presse, posts publics).
+- Si tu ne trouves pas d'image spécifique pour un événement, laisse son champ imageUrl vide (ne mets PAS l'image de profil partout).
+- Fournis l'URL source (sourceUrl) pour permettre à l'utilisateur de vérifier.`;
     }
 
     /**
@@ -161,17 +177,26 @@ IMPORTANT : Ne retourne que des informations PUBLIQUES. Si le profil est privé 
         // Créer des souvenirs à partir de la timeline
         if (analysis.timeline) {
             analysis.timeline.forEach((item: any, index: number) => {
+                // Ensure item is object
+                const eventText = typeof item === 'string' ? item : (item.event || item.description || '');
+                const eventImg = (typeof item === 'object' && item.imageUrl) ? item.imageUrl : undefined; // Don't default to profile for specific events to avoid repetition
+                const eventDate = (typeof item === 'object' && item.year) ? `${item.year}-01-01` : new Date().toISOString();
+                const sourceUrl = (typeof item === 'object' && item.sourceUrl) ? item.sourceUrl : undefined;
+
+                if (!eventText) return;
+
                 memories.push({
                     id: `${profile.platform}_timeline_${index}`,
                     platform: profile.platform,
                     externalId: `timeline_${index}`,
-                    date: item.year ? `${item.year}-01-01` : new Date().toISOString(),
-                    content: item.event || '',
-                    imageUrl: imageUrl, // On réutilise l'image du profil par défaut
+                    date: eventDate,
+                    content: eventText,
+                    imageUrl: eventImg,
+                    location: sourceUrl, // Store source URL in location field for now (or a better place if available)
                     analysis: {
                         emotion: analysis.tone || 'Neutre',
                         themes: analysis.themes || [],
-                        suggestedAngles: [`Raconte-moi cette période : ${item.event}`],
+                        suggestedAngles: [`Raconte-moi cette période : ${eventText}`],
                     },
                 });
             });
@@ -179,18 +204,25 @@ IMPORTANT : Ne retourne que des informations PUBLIQUES. Si le profil est privé 
 
         // Créer des souvenirs à partir des moments clés
         if (analysis.keyMoments) {
-            analysis.keyMoments.forEach((moment: string, index: number) => {
+            analysis.keyMoments.forEach((item: any, index: number) => {
+                const momentText = typeof item === 'string' ? item : (item.description || item.event || '');
+                const momentImg = (typeof item === 'object' && item.imageUrl) ? item.imageUrl : undefined;
+                const sourceUrl = (typeof item === 'object' && item.sourceUrl) ? item.sourceUrl : undefined;
+
+                if (!momentText) return;
+
                 memories.push({
                     id: `${profile.platform}_moment_${index}`,
                     platform: profile.platform,
                     externalId: `moment_${index}`,
                     date: new Date().toISOString(),
-                    content: moment,
-                    imageUrl: imageUrl,
+                    content: momentText,
+                    imageUrl: momentImg,
+                    location: sourceUrl,
                     analysis: {
                         emotion: analysis.tone || 'Neutre',
                         themes: analysis.themes || [],
-                        suggestedAngles: [`Raconte-moi plus sur : ${moment}`],
+                        suggestedAngles: [`Raconte-moi plus sur : ${momentText}`],
                     },
                 });
             });

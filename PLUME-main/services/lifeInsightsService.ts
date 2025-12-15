@@ -186,7 +186,7 @@ Génère exactement 5 insights en JSON pur (pas de markdown, pas de \`\`\`json).
             const responseText = result.text;
 
             // Nettoyer la réponse (enlever les ```json si présents)
-            let cleanedText = responseText.trim();
+            let cleanedText = responseText ? responseText.trim() : '';
             if (cleanedText.startsWith('```json')) {
                 cleanedText = cleanedText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
             } else if (cleanedText.startsWith('```')) {
