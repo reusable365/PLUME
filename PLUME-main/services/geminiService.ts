@@ -41,19 +41,30 @@ N'écris RIEN en dehors des balises.
 <METADATA>
 (JSON strict pour alimenter la base de données.
 {
-  "dates_chronologie": ["1985", "Été 1992", "Enfance"],
+  "dates_chronologie": ["1985", "Été 1992"],
   "lieux_cites": ["Chambéry", "Plage de Nice"],
-  "personnages_cites": ["Grand-mère"],
+  "personnages_cites": ["Jean", "Maman", "Grand-mère", "Tata Marie"],
   "tags_suggeres": ["Enfance", "Vacances"],
-  "emotion": "Nostalgie"
+  "emotion": "Nostalgie",
+  "periode_vie": "Enfance"
 }
 
-RÈGLES CRUCIALES POUR LES DATES:
+RÈGLES CRUCIALES POUR LES PERSONNAGES:
+1. Extrais TOUS les noms de personnes, même les prénoms simples ("Jean", "Marie", "Paul")
+2. Inclus les surnoms familiaux: "Maman", "Papa", "Tata", "Tonton", "Pépé", "Mémé"
+3. Inclus les relations même sans prénom: "mon père", "ma mère", "mes parents"
+4. Si "Jean" est mentionné comme personne, il DOIT apparaître dans la liste
+
+RÈGLES POUR LA PÉRIODE DE VIE (periode_vie):
+- Détecte la période de vie du narrateur AU MOMENT DU SOUVENIR
+- Valeurs possibles: "Petite enfance" (0-5 ans), "Enfance" (6-12 ans), "Adolescence" (13-17 ans), "Jeune adulte" (18-30 ans), "Adulte" (30+), "Non précisé"
+- Indices: "petite", "quand j'étais enfant", "mes parents m'ont...", "école primaire" → Enfance
+- Si l'auteur évoque des peurs enfantines, des jouets, Saint Nicolas → probablement Enfance ou Petite enfance
+
+RÈGLES POUR LES DATES:
 1. NE JAMAIS mettre l'année courante (2024, 2025) pour un souvenir du passé
-2. Si l'auteur parle d'enfance/adolescence sans date précise → utilise "Enfance" ou "Adolescence" comme période
-3. Si une fête est mentionnée (Noël, Pâques) SANS année → utilise "Noël d'enfance" ou juste le tag, PAS la date actuelle
-4. Seules les dates EXPLICITEMENT mentionnées par l'auteur doivent apparaître
-5. En cas de doute sur la période → laisse le tableau vide et ajoute un tag pertinent (ex: "Enfance", "Années 80")
+2. En cas de doute sur la date → laisse le tableau vide
+3. Seules les dates EXPLICITEMENT mentionnées par l'auteur doivent apparaître
 
 Si rien de nouveau, renvoie des tableaux vides.)
 </METADATA>
@@ -155,7 +166,8 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
     lieux_cites: [],
     personnages_cites: [],
     tags_suggeres: [],
-    emotion: 'Neutre'
+    emotion: 'Neutre',
+    periode_vie: 'Non précisé'
   };
 
   try {
@@ -171,7 +183,8 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
           lieux_cites: Array.isArray(rawMeta.lieux_cites) ? rawMeta.lieux_cites : [],
           personnages_cites: Array.isArray(rawMeta.personnages_cites) ? rawMeta.personnages_cites : [],
           tags_suggeres: Array.isArray(rawMeta.tags_suggeres) ? rawMeta.tags_suggeres : [],
-          emotion: rawMeta.emotion || 'Neutre'
+          emotion: rawMeta.emotion || 'Neutre',
+          periode_vie: rawMeta.periode_vie || 'Non précisé'
         };
 
         // POST-PROCESSING: Filter out current year dates for historical memories
