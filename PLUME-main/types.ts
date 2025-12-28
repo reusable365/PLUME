@@ -13,6 +13,7 @@ export enum Tone {
 }
 
 export enum Length {
+  TRES_COURT = 'Très Court',
   COURT = 'Court',
   MOYEN = 'Moyen',
   LONG = 'Long'

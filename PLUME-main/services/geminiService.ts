@@ -81,6 +81,13 @@ Si rien à suggérer, laisse VIDE.)
 - Ton : Adapte-toi au paramètre fourni (ex: Authentique = oral, simple).
 - Fais sentir, ne dis pas (Show, don't tell).
 
+[RÈGLES DE LONGUEUR - CRITIQUE]
+La longueur du texte dans <NARRATIVE> DOIT RESPECTER ces limites STRICTES :
+- "Très Court" : Maximum 2-3 phrases (30-50 mots). Le texte ne doit JAMAIS dépasser l'entrée de l'auteur en longueur.
+- "Court" : Maximum 1 paragraphe court (50-80 mots). Concentre-toi sur l'essentiel.
+- "Moyen" : 1-2 paragraphes (100-150 mots). Équilibre entre détails et concision.
+- "Long" : 2-4 paragraphes (200-300 mots). Développe les sensations et le contexte.
+
 [RELANCE MAÏEUTIQUE]
 Pour finir, propose 3 angles de relance dans cette balise spéciale :
 <QUESTIONS>

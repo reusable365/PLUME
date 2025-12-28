@@ -28,6 +28,7 @@ const TONES_DISPLAY = [
 ];
 
 const LENGTHS_DISPLAY = [
+    { value: Length.TRES_COURT, label: 'Très Court' },
     { value: Length.COURT, label: 'Court' },
     { value: Length.MOYEN, label: 'Normal' },
     { value: Length.LONG, label: 'Long' },
@@ -142,8 +143,8 @@ export const RegenerateModal: React.FC<RegenerateModalProps> = ({
                                     key={value}
                                     onClick={() => setSelectedLength(value)}
                                     className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${selectedLength === value
-                                            ? 'bg-accent text-white shadow-md'
-                                            : 'bg-ink-50 text-ink-600 hover:bg-ink-100'
+                                        ? 'bg-accent text-white shadow-md'
+                                        : 'bg-ink-50 text-ink-600 hover:bg-ink-100'
                                         }`}
                                 >
                                     {label}
@@ -163,8 +164,8 @@ export const RegenerateModal: React.FC<RegenerateModalProps> = ({
                                     key={value}
                                     onClick={() => setSelectedTone(value)}
                                     className={`py-2 px-4 rounded-lg text-sm font-medium transition-all ${selectedTone === value
-                                            ? 'bg-accent text-white shadow-md'
-                                            : 'bg-ink-50 text-ink-600 hover:bg-ink-100'
+                                        ? 'bg-accent text-white shadow-md'
+                                        : 'bg-ink-50 text-ink-600 hover:bg-ink-100'
                                         }`}
                                 >
                                     {label}
@@ -180,8 +181,8 @@ export const RegenerateModal: React.FC<RegenerateModalProps> = ({
                                 Authenticité
                             </label>
                             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${authenticity >= 90
-                                    ? 'bg-amber-100 text-amber-700'
-                                    : 'bg-ink-100 text-ink-600'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-ink-100 text-ink-600'
                                 }`}>
                                 {getAuthenticityLabel()}
                             </span>
