@@ -8,7 +8,7 @@ interface AuthModalProps {
     initialView?: 'login' | 'signup';
 }
 
-type OnboardingStep = 'welcome' | 'name' | 'email' | 'password' | 'config';
+type OnboardingStep = 'welcome' | 'name' | 'email' | 'password' | 'forgotPassword' | 'config';
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'login' }) => {
     const [step, setStep] = useState<OnboardingStep>('welcome');
@@ -120,8 +120,31 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
             });
             if (error) throw error;
         } catch (err: any) {
-            logger.error("Google Auth Error:", err);
+            console.error("Google Auth Error:", err);
             setError(err.message || "Erreur de connexion Google");
+            setLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!email.includes('@')) {
+            setError("Veuillez d'abord entrer une adresse email valide.");
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        setMessage(null);
+
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/reset-password`,
+            });
+            if (error) throw error;
+            setMessage("Un email de réinitialisation a été envoyé à " + email);
+        } catch (err: any) {
+            setError(err.message || "Erreur lors de l'envoi de l'email");
+        } finally {
             setLoading(false);
         }
     };
@@ -262,6 +285,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
                             {loading ? 'Signature en cours...' : (isSignUp ? 'Graver le pacte' : 'Ouvrir le coffre')}
                             {!loading && <IconFeather className="w-5 h-5" />}
                         </button>
+                        {!isSignUp && (
+                            <button
+                                type="button"
+                                onClick={() => setStep('forgotPassword')}
+                                className="w-full text-center text-ink-400 hover:text-accent text-sm font-medium transition-colors mt-2"
+                            >
+                                Mot de passe oublié ?
+                            </button>
+                        )}
                     </form>
                 );
 
@@ -282,6 +314,38 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
                         />
                         <button type="submit" className="w-full py-3 bg-ink-900 text-white font-bold rounded-xl hover:bg-black transition-colors">
                             Sauvegarder
+                        </button>
+                    </form>
+                );
+
+            case 'forgotPassword':
+                return (
+                    <form onSubmit={handleForgotPassword} className="space-y-6 animate-fade-in">
+                        <div className="text-center space-y-2">
+                            <h3 className="font-serif text-2xl font-bold text-ink-900">Mot de passe oublié</h3>
+                            <p className="text-ink-500">Entrez votre email pour recevoir un lien de réinitialisation</p>
+                        </div>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="votre@email.com"
+                            autoFocus
+                            className="w-full text-center text-xl font-sans border-2 border-ink-200 focus:border-accent bg-white rounded-xl px-4 py-3 outline-none placeholder-ink-300 text-ink-800 transition-colors"
+                        />
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-4 bg-accent hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                        >
+                            {loading ? 'Envoi en cours...' : 'Envoyer le lien de réinitialisation'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setStep('password')}
+                            className="w-full text-center text-ink-400 hover:text-ink-600 text-sm font-medium transition-colors"
+                        >
+                            ← Retour à la connexion
                         </button>
                     </form>
                 );
