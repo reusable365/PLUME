@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, Save, Edit3, Calendar, MapPin, Users, BookOpen, Heart, X } from 'lucide-react';
+import { Sparkles, RefreshCw, Save, Edit3, Calendar, MapPin, Users, BookOpen, Heart, X, Leaf } from 'lucide-react';
 import { MaturityScore } from '../hooks/useMaturityScore';
 
 interface CompilationPanelProps {
@@ -8,6 +8,7 @@ interface CompilationPanelProps {
     onEdit: (newContent: string) => void;
     onRefresh: () => void;
     onSave?: () => void;
+    onSaveAsDraft?: () => void;
     onUndo?: () => void;
     canUndo?: boolean;
     maturityScore?: MaturityScore;
@@ -21,6 +22,7 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
     onEdit,
     onRefresh,
     onSave,
+    onSaveAsDraft,
     onUndo,
     canUndo,
     maturityScore,
@@ -99,14 +101,24 @@ export const CompilationPanel: React.FC<CompilationPanelProps> = ({
                             Sauvegarde auto...
                         </span>
                     )}
+                    {onSaveAsDraft && (
+                        <button
+                            onClick={onSaveAsDraft}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium transition-colors"
+                            title="Sauvegarder en brouillon pour y revenir plus tard"
+                        >
+                            <Leaf size={14} />
+                            <span className="hidden sm:inline">Germer</span>
+                        </button>
+                    )}
                     {onSave && (
                         <button
                             onClick={onSave}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
-                            title="Graver ce souvenir"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-accent hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
+                            title="Graver ce souvenir dans le Livre"
                         >
                             <Save size={14} />
-                            GRAVER
+                            <span className="hidden sm:inline">GRAVER</span>
                         </button>
                     )}
                     {canUndo && onUndo && (

@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { IconSearch, IconFilter, IconClock, IconUser, IconTag, IconChevronDown, IconX, IconFeather, IconBook, IconCamera, IconTrash, IconShare2, IconLink, IconMail, IconArrowUp } from './Icons';
+import { Users } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
+import { logger } from '../utils/logger';
 import { TagIntelligenceService, TagCluster } from '../services/tagIntelligenceService';
 import { LifeInsightsService, LifeInsight } from '../services/lifeInsightsService';
 import { LifeInsights } from './LifeInsights';
+import WitnessInviteModal from './WitnessInviteModal';
 
 interface BoutiqueSouvenirsProps {
     userId: string;
     onSouvenirSelect?: (messageId: string) => void;
     onSouvenirShare?: (souvenir: any) => void;
+    onShowContributions?: () => void;
+    pendingContributionsCount?: number;
 }
 
 interface Souvenir {
@@ -26,7 +31,7 @@ interface Souvenir {
     emotion?: string; // Add emotion field
 }
 
-const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouvenirSelect, onSouvenirShare }) => {
+const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouvenirSelect, onSouvenirShare, onShowContributions, pendingContributionsCount = 0 }) => {
     const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
     const [filteredSouvenirs, setFilteredSouvenirs] = useState<Souvenir[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -60,6 +65,9 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
 
     // Share Modal State
     const [souvenirToShare, setSouvenirToShare] = useState<Souvenir | null>(null);
+
+    // Witness Invite Modal State
+    const [souvenirForWitness, setSouvenirForWitness] = useState<Souvenir | null>(null);
 
     // Drag and Drop State
     const [draggedSouvenir, setDraggedSouvenir] = useState<string | null>(null);
@@ -108,7 +116,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     content: c.content,
                     narrative: c.content,
                     created_at: c.created_at,
-                    dates: c.metadata?.dates || [],
+                    dates: (c.metadata?.dates?.length ? c.metadata.dates : (c.content?.match(/\b(19|20)\d{2}\b/g) || [])),
                     characters: c.metadata?.characters || [],
                     tags: c.metadata?.tags || [],
                     isDrafted: c.status === 'published', // true if published (gravé)
@@ -146,14 +154,14 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
 
                     // Organize tags with AI
                     if (uniqueTags.length > 0) {
-                        console.log('🏷️ Starting tag organization for', uniqueTags.length, 'tags');
+                        logger.debug('Starting tag organization', { count: uniqueTags.length });
                         // Optimistic update first (flat list)
                         setTags(uniqueTags.sort());
 
                         // Then fetch AI organization in background
                         TagIntelligenceService.organizeTags(uniqueTags)
                             .then(clusters => {
-                                console.log('✅ Tag clusters ready:', clusters);
+                                logger.debug('Tag clusters ready:', clusters);
                                 setTagClusters(clusters);
                             })
                             .catch(err => {
@@ -180,7 +188,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                 setPhotos(profile.photos);
             }
         } catch (error) {
-            console.error('Error loading souvenirs:', error);
+            logger.error('Error loading souvenirs:', error);
         } finally {
             setIsLoading(false);
         }
@@ -193,7 +201,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
             const generatedInsights = await LifeInsightsService.generateInsights(souvenirsList);
             setInsights(generatedInsights);
         } catch (error) {
-            console.error('Error generating insights:', error);
+            logger.error('Error generating insights:', error);
         } finally {
             setIsLoadingInsights(false);
         }
@@ -228,7 +236,7 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
             setSouvenirs(prev => prev.filter(s => s.id !== souvenirToDelete));
             setSouvenirToDelete(null);
         } catch (error) {
-            console.error('Error deleting souvenir:', error);
+            logger.error('Error deleting souvenir:', error);
             alert('Erreur lors de la suppression du souvenir.');
         }
     };
@@ -487,6 +495,24 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                         <div className="space-y-3">
                             <button
                                 onClick={() => {
+                                    setSouvenirForWitness(souvenirToShare);
+                                    setSouvenirToShare(null);
+                                }}
+                                className="w-full p-4 bg-amber-50 hover:bg-amber-100 rounded-xl flex items-center gap-4 transition-colors group border-2 border-amber-200/50"
+                            >
+                                <div className="bg-amber-500 text-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <IconFeather className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block font-bold text-ink-900">Appel à Témoin (IA)</span>
+                                    <span className="text-xs text-ink-500">Plume interroge votre proche pour vous</span>
+                                </div>
+                            </button>
+
+
+
+                            <button
+                                onClick={() => {
                                     const url = `${window.location.origin}/?guest=${souvenirToShare.id}`;
                                     const message = `Je vous invite à partager vos souvenirs de "${souvenirToShare.title}" 📖\n\nContribuez à mon livre de vie :\n${url}`;
                                     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
@@ -619,6 +645,22 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                         >
                             📸 Photos
                         </button>
+
+                        {/* Contributions Button */}
+                        {onShowContributions && (
+                            <button
+                                onClick={onShowContributions}
+                                className="relative px-6 py-2 rounded-lg font-semibold transition-all text-purple-600 hover:bg-purple-50 flex items-center gap-2"
+                            >
+                                <Users className="w-4 h-4" />
+                                Témoignages
+                                {pendingContributionsCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                        {pendingContributionsCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -876,6 +918,16 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    setSouvenirForWitness(souvenir);
+                                                }}
+                                                className="p-2 bg-white text-purple-500 hover:text-white hover:bg-purple-500 rounded-full shadow-sm transition-all"
+                                                title="Appeler un témoin"
+                                            >
+                                                <Users className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     handleShareClick(souvenir);
                                                 }}
                                                 className="p-2 bg-white text-accent hover:text-white hover:bg-accent rounded-full shadow-sm transition-all"
@@ -1099,8 +1151,26 @@ const BoutiqueSouvenirs: React.FC<BoutiqueSouvenirsProps> = ({ userId, onSouveni
                     overflow: hidden;
                 }
             `}</style>
+
+            {/* Witness Invite Modal */}
+            {souvenirForWitness && (
+                <WitnessInviteModal
+                    isOpen={!!souvenirForWitness}
+                    onClose={() => setSouvenirForWitness(null)}
+                    souvenir={{
+                        id: souvenirForWitness.id,
+                        title: souvenirForWitness.title || 'Mon souvenir',
+                        content: souvenirForWitness.content,
+                        location: souvenirForWitness.dates?.[0], // Use first date as context
+                        date: souvenirForWitness.dates?.[0],
+                        tags: souvenirForWitness.tags
+                    }}
+                    authorName="Stéphane" // TODO: Get from user profile
+                />
+            )}
         </div >
     );
 };
 
 export default BoutiqueSouvenirs;
+

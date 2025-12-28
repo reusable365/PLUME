@@ -120,7 +120,7 @@ export interface AppState {
   };
 }
 
-export type ViewType = 'landing' | 'studio' | 'gallery' | 'manuscript' | 'dashboard' | 'boutique' | 'universe' | 'digital-memory' | 'guest_prototype' | 'guest_view';
+export type ViewType = 'landing' | 'studio' | 'gallery' | 'manuscript' | 'dashboard' | 'boutique' | 'universe' | 'digital-memory' | 'guest_prototype' | 'guest_view' | 'address-book' | 'guest_landing';
 
 export interface PhotoAnalysis {
   description: string;          // Description générale de la photo
@@ -282,4 +282,5 @@ export interface Souvenir {
   status?: string;
   emotion?: string;
   imageUrl?: string;
+  photos?: string[];
 }

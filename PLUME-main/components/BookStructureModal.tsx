@@ -61,7 +61,7 @@ const BookStructureModal: React.FC<BookStructureModalProps> = ({
             const structure = await generateBookStructure(selectedMode, userId, userProfile);
             setGeneratedStructure(structure);
         } catch (err) {
-            console.error('Error generating structure:', err);
+            logger.error('Error generating structure:', err);
             setError('Erreur lors de la génération de la structure. Veuillez réessayer.');
         } finally {
             setIsGenerating(false);
@@ -272,3 +272,4 @@ const BookStructureModal: React.FC<BookStructureModalProps> = ({
 };
 
 export default BookStructureModal;
+

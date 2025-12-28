@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Calendar, MapPin, User, Tag, Check, Edit2, AlertCircle, Sparkles } from 'lucide-react';
 import { MaturityScore } from '../hooks/useMaturityScore';
 import { generateSouvenirTitle } from '../services/geminiService';
+import { logger } from '../utils/logger';
 
 interface PersonEntity {
     name: string;
@@ -69,7 +70,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             );
             setEditedTitle(generatedTitle);
         } catch (error) {
-            console.error('Error generating title:', error);
+            logger.error('Error generating title:', error);
         } finally {
             setIsGeneratingTitle(false);
         }
@@ -334,3 +335,4 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         </div>
     );
 };
+

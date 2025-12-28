@@ -41,12 +41,20 @@ N'écris RIEN en dehors des balises.
 <METADATA>
 (JSON strict pour alimenter la base de données.
 {
-  "dates_chronologie": ["1995", "Été 2002"],
+  "dates_chronologie": ["1985", "Été 1992", "Enfance"],
   "lieux_cites": ["Chambéry", "Plage de Nice"],
   "personnages_cites": ["Grand-mère"],
   "tags_suggeres": ["Enfance", "Vacances"],
   "emotion": "Nostalgie"
 }
+
+RÈGLES CRUCIALES POUR LES DATES:
+1. NE JAMAIS mettre l'année courante (2024, 2025) pour un souvenir du passé
+2. Si l'auteur parle d'enfance/adolescence sans date précise → utilise "Enfance" ou "Adolescence" comme période
+3. Si une fête est mentionnée (Noël, Pâques) SANS année → utilise "Noël d'enfance" ou juste le tag, PAS la date actuelle
+4. Seules les dates EXPLICITEMENT mentionnées par l'auteur doivent apparaître
+5. En cas de doute sur la période → laisse le tableau vide et ajoute un tag pertinent (ex: "Enfance", "Années 80")
+
 Si rien de nouveau, renvoie des tableaux vides.)
 </METADATA>
 
@@ -75,11 +83,38 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
   // --- AGGRESSIVE CLEANING OF LEAKED REASONING ---
   // The AI sometimes leaks its thinking process formatted as markdown lists or bold headers.
   // We strip these specific patterns before any XML parsing.
+
+  // Pattern 1: Markdown formatted reasoning
   text = text.replace(/^\s*-\s*\*\*Intention\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
   text = text.replace(/^\s*-\s*\*\*Entités\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
   text = text.replace(/^\s*-\s*\*\*Stratégie\*\*[\s\S]*?(?=<CONVERSATION>|<NARRATIVE>|$)/gim, '');
   text = text.replace(/Intention\s*:[^\n]*(\n|$)/gi, ''); // Single line leaks
   text = text.replace(/Stratégie\s*:[^\n]*(\n|$)/gi, '');
+
+  // Pattern 2: French reasoning phrases that leak before XML tags
+  // These are internal AI reasoning patterns in French
+  const frenchReasoningPatterns = [
+    /^[\s\S]*?(?=car l'auteur|car l'utilisateur)[\s\S]*?(?=\.\s*[A-Z]|\.\s*<)/gi,
+    /car l'auteur n'a pas encore[^.]*\./gi,
+    /car l'utilisateur n'a pas[^.]*\./gi,
+    /Je dois renvoyer[^.]*\./gi,
+    /Je dois donc[^.]*\./gi,
+    /Je dois maintenant[^.]*\./gi,
+    /Je dois analyser[^.]*\./gi,
+    /Je vais préparer[^.]*\./gi,
+    /Je vais donc[^.]*\./gi,
+    /Je vais maintenant[^.]*\./gi,
+    /pour le moment,[^.]*\./gi,
+    /car il n'y a pas de[^.]*\./gi,
+    /L'intention est[^.]*\./gi,
+    /L'émotion dominante est[^.]*\./gi,
+    /Ma stratégie est[^.]*\./gi,
+    /Analyse\s*:[^\n]*\n/gi,
+  ];
+
+  frenchReasoningPatterns.forEach(pattern => {
+    text = text.replace(pattern, '');
+  });
 
   // 1. Robust Regex Extraction
   // We allow optional spaces inside tags: < CONVERSATION >
@@ -138,6 +173,27 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
           tags_suggeres: Array.isArray(rawMeta.tags_suggeres) ? rawMeta.tags_suggeres : [],
           emotion: rawMeta.emotion || 'Neutre'
         };
+
+        // POST-PROCESSING: Filter out current year dates for historical memories
+        const currentYear = new Date().getFullYear();
+        const previousYear = currentYear - 1;
+        const historicalTags = ['enfance', 'adolescence', 'jeunesse', 'childhood', 'années 80', 'années 90', 'années 2000'];
+        const isHistoricalMemory = parsedData.tags_suggeres.some((tag: string) =>
+          historicalTags.some(ht => tag.toLowerCase().includes(ht))
+        );
+
+        if (isHistoricalMemory && parsedData.dates_chronologie.length > 0) {
+          // Filter out dates containing current or recent years
+          parsedData.dates_chronologie = parsedData.dates_chronologie.filter((date: string) => {
+            const dateStr = String(date);
+            // Remove if it contains current year or is a specific recent date
+            if (dateStr.includes(String(currentYear)) || dateStr.includes(String(previousYear))) {
+              logger.debug(`Filtering out current-year date for historical memory: ${date}`);
+              return false;
+            }
+            return true;
+          });
+        }
       }
     }
   } catch (e) {
@@ -215,6 +271,33 @@ const parsePlumeResponse = (text: string): PlumeResponse => {
   // Sanitize conversation to remove any leaked tags (e.g. </THINKING>)
   if (finalConversation) {
     finalConversation = finalConversation.replace(/<\/?\w+>/g, '').trim();
+
+    // Remove any leaked reasoning phrases from conversation
+    const reasoningLeakPatterns = [
+      /car l'auteur n'a pas encore[^.]*\.\s*/gi,
+      /car l'utilisateur n'a pas[^.]*\.\s*/gi,
+      /Je dois renvoyer[^.]*\.\s*/gi,
+      /Je dois donc[^.]*\.\s*/gi,
+      /Je dois maintenant[^.]*\.\s*/gi,
+      /Je dois analyser[^.]*\.\s*/gi,
+      /Je vais préparer[^.]*\.\s*/gi,
+      /Je vais donc[^.]*\.\s*/gi,
+      /Je vais maintenant[^.]*\.\s*/gi,
+      /pour le moment,[^.]*\.\s*/gi,
+      /car il n'y a pas de[^.]*\.\s*/gi,
+      /L'intention est[^.]*\.\s*/gi,
+      /L'émotion dominante est[^.]*\.\s*/gi,
+      /Ma stratégie est[^.]*\.\s*/gi,
+      /pas de nouveau contenu[^.]*\.\s*/gi,
+      /métadonnées et suggestions[^.]*\.\s*/gi,
+    ];
+
+    reasoningLeakPatterns.forEach(pattern => {
+      finalConversation = finalConversation.replace(pattern, '');
+    });
+
+    // Trim leading/trailing whitespace again after cleaning
+    finalConversation = finalConversation.trim();
   }
 
   // Parse suggestion if present
@@ -282,7 +365,7 @@ export const sendMessageToPlume = async (
 
   try {
     const chat = ai.chats.create({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-exp',
       history: history,
       config: {
         systemInstruction: finalSystemInstruction,
@@ -332,7 +415,7 @@ export const synthesizeNarrative = async (
 
   try {
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-exp',
       contents: [{ parts: [{ text: synthesisPrompt }] }]
     });
 
@@ -356,64 +439,152 @@ export const synthesizeNarrative = async (
 export const generateKickstarter = async (
   userProfile: User | null,
   ideas: Array<{ id: string; title: string; content: string; tags: string[] }>,
-  darkZones: Array<{ title: string; description: string; category: string }>
+  darkZones: Array<{ title: string; description: string;[key: string]: any }>
 ): Promise<PlumeResponse> => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  let bioContext = "";
+
+  // Build rich context
+  const now = new Date();
+  const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const dayOfWeek = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][now.getDay()];
+  const dateContext = `${dayOfWeek} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+
+  // Seasonal/holiday context
+  let seasonalHint = "";
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  if (month === 12 && day >= 20 && day <= 26) seasonalHint = "Nous sommes dans la magie de Noël, une période souvent riche en souvenirs familiaux...";
+  else if (month === 12 && day >= 27 && day <= 31) seasonalHint = "Entre Noël et le Nouvel An, un moment propice aux bilans et aux souvenirs de l'année écoulée...";
+  else if (month === 1 && day <= 7) seasonalHint = "Début d'année, temps des résolutions et des regards en arrière sur le chemin parcouru...";
+  else if (month === 6 || month === 7 || month === 8) seasonalHint = "L'été, ses vacances, ses aventures... Une mine de souvenirs.";
+  else if (month === 9) seasonalHint = "La rentrée, les nouveaux départs, les premiers jours d'école...";
+  else if (month === 11 && day === 11) seasonalHint = "11 novembre, jour de mémoire collective...";
+
+  // User context
+  let userContext = "";
   if (userProfile) {
-    bioContext = `\nPrénom: ${userProfile.firstName || 'Auteur'}\n`;
+    userContext = `Prénom de l'auteur: ${userProfile.firstName || 'Auteur'}`;
+    if (userProfile.birthDate) {
+      const birthYear = new Date(userProfile.birthDate).getFullYear();
+      userContext += `\nNé(e) en: ${birthYear} (environ ${now.getFullYear() - birthYear} ans)`;
+    }
   }
+
+  // Ideas from chest
+  const ideasContext = ideas.length > 0
+    ? `Idées en attente dans le coffre:\n${ideas.slice(0, 3).map(i => `- "${i.title}": ${i.content}`).join('\n')}`
+    : "Aucune idée en attente dans le coffre.";
+
+  // Dark zones (unexplored periods)
+  const darkZonesContext = darkZones.length > 0
+    ? `Zones d'ombre à explorer:\n${darkZones.slice(0, 2).map(z => `- ${z.title}: ${z.description}`).join('\n')}`
+    : "";
 
   const kickstarterPrompt = `
   [TÂCHE]
-  Accueille l'auteur pour une nouvelle session d'écriture.
+  Tu es PLUME, l'assistant biographe. Accueille l'auteur pour une NOUVELLE session d'écriture de manière chaleureuse, inspirante et personnalisée.
   
-  [CONTEXTE]
-  ${bioContext}
-  Idées en attente: ${ideas.slice(0, 3).map(i => i.title).join(', ')}
+  [CONTEXTE TEMPOREL]
+  Date actuelle: ${dateContext}
+  ${seasonalHint}
+  
+  [PROFIL AUTEUR]
+  ${userContext || "Auteur anonyme"}
+  
+  [PISTES DE TRAVAIL]
+  ${ideasContext}
+  ${darkZonesContext}
+  
+  [CONSIGNES]
+  1. Accueil chaleureux et personnalisé (utilise le prénom si disponible)
+  2. Fais référence subtilement à la date/saison si pertinent
+  3. Si une idée du coffre est prometteuse, suggère-la comme piste
+  4. Si une zone d'ombre existe, propose de l'explorer
+  5. Reste bref (3-4 phrases max) mais inspirant
+  6. Les 3 questions doivent être des INVITATIONS à commencer un souvenir, pas des questions sur un souvenir existant
   
   [FORMAT XML OBLIGATOIRE]
+  <NARRATIVE>
+  [Le même texte que CONVERSATION - message d'accueil]
+  </NARRATIVE>
+  
   <CONVERSATION>
-  Message d'accueil chaleureux et court (2 phrases). Propose d'explorer une idée du coffre si pertinent.
+  [Message d'accueil chaleureux, personnalisé, inspirant. Propose une piste concrète si disponible.]
   </CONVERSATION>
   
   <QUESTIONS>
-  EMOTION|❤️ Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?
-  ACTION|⚡ Quel événement a déclenché ce souvenir ?
-  SENSORIEL|👁️ Quelle image, odeur ou sensation vous revient en premier ?
+  EMOTION|❤️ Question pour éveiller une émotion ou un souvenir lié à la date/saison/idée suggérée
+  ACTION|⚡ Question sur un événement récent ou une période de vie à explorer
+  SENSORIEL|👁️ Question sur une image, odeur, musique ou sensation qui pourrait faire remonter un souvenir
   </QUESTIONS>
   `;
 
   try {
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-exp',
       contents: [{ parts: [{ text: kickstarterPrompt }] }]
     });
 
     const text = result.text || '';
     const parsed = parsePlumeResponse(text);
 
-    // Ensure we always have the 3 axes
+    // Ensure we always have the 3 axes with contextual fallbacks
     if (!parsed.questions || parsed.questions.length < 3) {
-      parsed.questions = [
-        { type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?' },
-        { type: 'action', label: '⚡ Action', text: 'Quel événement a déclenché ce souvenir ?' },
-        { type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image, odeur ou sensation vous revient en premier ?' }
-      ];
+      const contextualQuestions = [];
+
+      // Emotion question - contextual
+      if (ideas.length > 0) {
+        contextualQuestions.push({ type: 'emotion', label: '❤️ Émotion', text: `En pensant à "${ideas[0].title}", quelle émotion vous vient en premier ?` });
+      } else if (seasonalHint) {
+        contextualQuestions.push({ type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion cette période de l\'année éveille-t-elle en vous ?' });
+      } else {
+        contextualQuestions.push({ type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion vous habite en ce moment ? Joie, nostalgie, curiosité ?' });
+      }
+
+      // Action question
+      if (darkZones.length > 0) {
+        contextualQuestions.push({ type: 'action', label: '⚡ Action', text: `Avez-vous des souvenirs liés à "${darkZones[0].title}" ?` });
+      } else {
+        contextualQuestions.push({ type: 'action', label: '⚡ Action', text: 'Y a-t-il un événement récent qui vous a fait penser au passé ?' });
+      }
+
+      // Sensorial question
+      contextualQuestions.push({ type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image, odeur ou musique vous vient spontanément à l\'esprit ?' });
+
+      parsed.questions = contextualQuestions;
+    }
+
+    // Ensure narrative is set (for display in MessageBubble)
+    if (!parsed.narrative && parsed.conversation) {
+      parsed.narrative = parsed.conversation;
     }
 
     return parsed;
   } catch (e) {
     logger.error("Kickstarter generation failed", e);
+
+    // Contextual fallback
+    let fallbackMessage = userProfile?.firstName
+      ? `Bonjour ${userProfile.firstName} ! `
+      : 'Bonjour ! ';
+
+    if (ideas.length > 0) {
+      fallbackMessage += `Votre coffre à idées contient "${ideas[0].title}". Souhaitez-vous développer ce souvenir ?`;
+    } else if (seasonalHint) {
+      fallbackMessage += seasonalHint + " Quel souvenir vous revient ?";
+    } else {
+      fallbackMessage += 'Je suis prêt à recueillir votre prochain souvenir. Par quel fil souhaitez-vous tirer ?';
+    }
+
     return {
-      narrative: '',
-      conversation: 'Bonjour ! Je suis prêt à recueillir votre prochain souvenir. Par quel angle souhaitez-vous commencer ?',
+      narrative: fallbackMessage,
+      conversation: fallbackMessage,
       data: null,
       suggestion: null,
       questions: [
-        { type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion prédomine dans ce moment que vous souhaitez raconter ?' },
-        { type: 'action', label: '⚡ Action', text: 'Quel événement a déclenché ce souvenir ?' },
-        { type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image, odeur ou sensation vous revient en premier ?' }
+        { type: 'emotion', label: '❤️ Émotion', text: 'Quelle émotion vous habite en ce moment ?' },
+        { type: 'action', label: '⚡ Action', text: 'Y a-t-il un événement récent qui vous interpelle ?' },
+        { type: 'sensoriel', label: '👁️ Sensoriel', text: 'Quelle image ou musique vous vient à l\'esprit ?' }
       ]
     } as PlumeResponse;
   }
@@ -424,9 +595,72 @@ export const generateSouvenirTitle = async (
   metadata: any
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const prompt = `Génère un titre court (max 6 mots) pour ce texte : "${narrative.substring(0, 300)}..."`;
-  const result = await ai.models.generateContent({ model: 'gemini-2.0-flash-exp', contents: [{ parts: [{ text: prompt }] }] });
-  return result.text?.replace(/[\"']/g, '').trim().substring(0, 50) || 'Nouveau Souvenir';
+
+  // Build context from metadata
+  let contextHints = '';
+  if (metadata?.people?.length > 0) contextHints += ` Personnes: ${metadata.people.join(', ')}.`;
+  if (metadata?.locations?.length > 0) contextHints += ` Lieux: ${metadata.locations.join(', ')}.`;
+  if (metadata?.tags?.length > 0) contextHints += ` Thèmes: ${metadata.tags.join(', ')}.`;
+
+  const prompt = `Tu dois générer UN SEUL titre court pour un souvenir autobiographique.
+
+RÈGLES STRICTES:
+- Maximum 6 mots
+- Style poétique/évocateur
+- NE PAS dire "Voici", "Je propose", ni aucune introduction
+- NE PAS donner plusieurs options
+- Réponds UNIQUEMENT avec le titre, rien d'autre
+
+Contexte du souvenir:
+"${narrative.substring(0, 400)}..."
+${contextHints}
+
+TITRE (6 mots max):`;
+
+  try {
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-exp',
+      contents: [{ parts: [{ text: prompt }] }]
+    });
+
+    let title = result.text?.trim() || 'Nouveau Souvenir';
+
+    // Aggressive cleaning of AI preamble
+    const preamblePatterns = [
+      /^voici[^:]*:/i,
+      /^je propose[^:]*:/i,
+      /^suggestion[^:]*:/i,
+      /^titre[^:]*:/i,
+      /^option[^:]*:/i,
+      /^un titre[^:]*:/i,
+      /^\d+\.\s*/,  // Remove numbered lists
+      /^[-•]\s*/,   // Remove bullet points
+      /^["']/,      // Remove leading quotes
+      /["']$/,      // Remove trailing quotes
+    ];
+
+    preamblePatterns.forEach(pattern => {
+      title = title.replace(pattern, '');
+    });
+
+    // If still contains multiple lines, take only the first
+    if (title.includes('\n')) {
+      title = title.split('\n')[0];
+    }
+
+    // Clean quotes and trim
+    title = title.replace(/[\"']/g, '').trim();
+
+    // If too long, truncate smartly
+    if (title.length > 50) {
+      title = title.substring(0, 50).split(' ').slice(0, -1).join(' ') + '...';
+    }
+
+    return title || 'Nouveau Souvenir';
+  } catch (error) {
+    logger.error('Error generating title:', error);
+    return 'Nouveau Souvenir';
+  }
 };
 
 export const generateTitleAndMetadata = async (text: string) => {

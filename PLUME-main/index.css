@@ -203,15 +203,40 @@ body {
             padding-bottom: env(safe-area-inset-bottom);
         }
     }
+
+    /* Utiliser la variable CSS custom pour la hauteur mobile */
+    .chat-container-vh {
+        height: calc(var(--vh, 1vh) * 100 - 64px);
+    }
+
+    /* Input container fixé en bas sur mobile */
+    .input-container {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 50;
+        background: var(--surface-color, white);
+        padding: 1rem;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+        border-top: 1px solid var(--ink-200, #e5e7eb);
+    }
+
+    /* Espace pour l'input fixé */
+    .chat-content-mobile {
+        padding-bottom: 180px;
+    }
 }
 
-/* ===== PREVENT REBALAYAGE ON LOAD ===== */
-.no-transition {
-    transition: none !important;
+/* ===== INPUT CONTAINER STABILITY FIX ===== */
+.input-container {
+    min-height: 120px;
+    transition: none;
+    /* Pas de transition au chargement */
 }
 
-.enable-transitions {
-    transition: all 0.3s ease !important;
+.input-container.loaded {
+    transition: height 0.2s ease-in-out;
 }
 
 /* ===== STUDIO 3-COLUMN LAYOUT ===== */

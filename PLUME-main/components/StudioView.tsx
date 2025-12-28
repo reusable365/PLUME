@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, User, Tone, Length, Fidelity, AppState, Idea, PlumeResponse } from '../types';
+import { logger } from '../utils/logger';
 import { LeftPanel } from './LeftPanel';
 import { CompilationPanel } from './CompilationPanel';
 import MessageBubble from './MessageBubble';
+import { RegenerateModal, RegenerateSettings } from './RegenerateModal';
 import { Menu } from 'lucide-react';
 import { useMaturityScore } from '../hooks/useMaturityScore';
 
@@ -37,6 +39,7 @@ interface StudioViewProps {
     onUndo?: () => void;
     canUndo?: boolean;
     onSave?: () => void;
+    onSaveAsDraft?: () => void;
     onOpenPhotoCatalyst?: () => void;
     draftPhotos?: string[];
     onRemovePhoto?: (index: number) => void;
@@ -45,6 +48,9 @@ interface StudioViewProps {
     onStopRecording?: () => void;
     isRecording?: boolean;
     voiceTranscript?: string; // Transcription from voice recording
+    // Regeneration
+    onRegenerate?: (messageId: string, settings: RegenerateSettings) => Promise<void>;
+    isRegenerating?: boolean;
 }
 
 export const StudioView: React.FC<StudioViewProps> = ({
@@ -77,30 +83,36 @@ export const StudioView: React.FC<StudioViewProps> = ({
     onUndo,
     canUndo,
     onSave,
+    onSaveAsDraft,
     onOpenPhotoCatalyst,
     draftPhotos,
     onRemovePhoto,
     onStartRecording,
     onStopRecording,
     isRecording,
-    voiceTranscript
+    voiceTranscript,
+    onRegenerate,
+    isRegenerating = false
 }) => {
     const [showLeftPanel, setShowLeftPanel] = useState(true);
+    const [regenerateModalOpen, setRegenerateModalOpen] = useState(false);
+    const [regenerateTargetMessageId, setRegenerateTargetMessageId] = useState<string | null>(null);
     const [input, setInput] = useState('');
     const [isSacred, setIsSacred] = useState(false);
 
-    // Sync voice transcript to input
-    useEffect(() => {
-        if (voiceTranscript) {
-            setInput(voiceTranscript);
-            console.log('🎤 Voice transcript synced to input:', voiceTranscript);
-        }
-    }, [voiceTranscript]);
+
+    // Note: voiceTranscript is now used as dynamic placeholder instead of syncing to input
+    // This provides a subtle hint without pre-filling the textarea
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
-    // Maturity Score
-    const maturityScore = useMaturityScore(sessionMessages, draftContent, aggregatedData);
+    // SESSION ISOLATION is now handled in App.tsx (line ~390)
+    // sessionMessages already contains only the current session's messages
+    // We just use them directly here
+    const currentSessionMessages = sessionMessages;
+
+    // Maturity Score - use session messages for accurate calculation
+    const maturityScore = useMaturityScore(currentSessionMessages, draftContent, aggregatedData);
 
     // Scroll to bottom on new messages
     useEffect(() => {
@@ -162,7 +174,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar scroll-smooth">
-                    {sessionMessages.map((msg, index) => (
+                    {currentSessionMessages.map((msg, index) => (
                         <div key={msg.id}>
                             <MessageBubble
                                 message={msg}
@@ -177,8 +189,11 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                     setDraftContent(newContent);
                                 }}
                                 onDeleteMessage={() => { }}
-                                onInitiateRegenerate={() => { }}
-                                isLastAssistantMessage={msg.role === 'assistant' && index === sessionMessages.length - 1}
+                                onInitiateRegenerate={(messageId) => {
+                                    setRegenerateTargetMessageId(messageId);
+                                    setRegenerateModalOpen(true);
+                                }}
+                                isLastAssistantMessage={msg.role === 'assistant' && index === currentSessionMessages.length - 1}
                                 existingIdeas={ideas.map(i => ({ title: i.title || '', content: i.content }))}
                             />
                         </div>
@@ -216,8 +231,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                            placeholder="Racontez-moi un souvenir..."
-                            className="w-full bg-transparent border-none px-4 md:px-6 py-4 text-base md:text-lg text-ink-800 placeholder-ink-400 focus:outline-none focus:ring-0 resize-none min-h-[100px] max-h-[400px] font-sans rounded-t-2xl"
+                            placeholder={voiceTranscript || "Racontez-moi un souvenir..."}
+                            className="w-full bg-transparent border-none px-4 md:px-6 py-4 text-base md:text-lg text-ink-800 placeholder-ink-300 placeholder:italic focus:outline-none focus:ring-0 resize-none min-h-[100px] max-h-[400px] font-sans rounded-t-2xl"
                             rows={3}
                             disabled={isSending}
                         />
@@ -260,7 +275,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                     title="Mode Import (Texte Sacré) : Votre texte sera conservé tel quel"
                                 >
                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.858.571-4.187m9-3.957E12.21 12.21 0 0012 3a12.21 12.21 0 00-6.666 1.98" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.858.571-4.187m9-3.957A12.21 12.21 0 0012 3a12.21 12.21 0 00-6.666 1.98" />
                                     </svg>
                                 </button>
                             </div>
@@ -270,12 +285,13 @@ export const StudioView: React.FC<StudioViewProps> = ({
                                 <button
                                     onClick={() => onInsertDivider()}
                                     disabled={isSending}
-                                    className="p-2 md:p-2.5 rounded-lg bg-ink-50 text-ink-600 hover:bg-accent/10 hover:text-accent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="Nouveau sujet"
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                    title="Commencer un nouveau souvenir"
                                 >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                                     </svg>
+                                    <span className="hidden md:inline">Nouveau souvenir</span>
                                 </button>
                                 <button
                                     onClick={handleSendMessage}
@@ -302,12 +318,43 @@ export const StudioView: React.FC<StudioViewProps> = ({
                     onEdit={onCompilationEdit}
                     maturityScore={maturityScore}
                     onSave={onSave}
+                    onSaveAsDraft={onSaveAsDraft}
                     onUndo={onUndo}
                     canUndo={canUndo}
                     photos={draftPhotos}
                     onRemovePhoto={onRemovePhoto}
                 />
             </div>
+
+            {/* Regenerate Modal */}
+            <RegenerateModal
+                isOpen={regenerateModalOpen}
+                onClose={() => {
+                    setRegenerateModalOpen(false);
+                    setRegenerateTargetMessageId(null);
+                }}
+                onRegenerate={async (settings) => {
+                    if (regenerateTargetMessageId && onRegenerate) {
+                        await onRegenerate(regenerateTargetMessageId, settings);
+                        // If user checked "apply as default", update global settings
+                        if (settings.applyAsDefault) {
+                            setTone(settings.tone);
+                            setLength(settings.length);
+                            if (settings.authenticity >= 90) {
+                                setFidelity(Fidelity.HAUTE);
+                            } else {
+                                setFidelity(Fidelity.BASSE);
+                            }
+                        }
+                        setRegenerateModalOpen(false);
+                        setRegenerateTargetMessageId(null);
+                    }
+                }}
+                currentTone={tone}
+                currentLength={length}
+                currentFidelity={fidelity}
+                isLoading={isRegenerating}
+            />
         </div>
     );
 };

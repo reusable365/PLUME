@@ -83,21 +83,20 @@ const PlumeDashboard: React.FC<PlumeDashboardProps> = ({ userId, userProfile, me
             setTimeline(timelineData);
             localStorage.setItem(`dashboard_timeline_${userId}`, JSON.stringify(timelineData));
 
-            // Load character mentions
-            const { data: entities } = await supabase
-                .from('entities')
-                .select('value')
-                .eq('user_id', userId)
-                .eq('type', 'person');
 
-            if (entities) {
-                const charCounts: Record<string, number> = {};
-                entities.forEach(e => {
-                    charCounts[e.value] = (charCounts[e.value] || 0) + 1;
-                });
-                const charData = Object.entries(charCounts)
-                    .map(([name, mentions]) => ({ name, mentions }))
-                    .sort((a, b) => b.mentions - a.mentions);
+            // Load character mentions from person_entities (updated by merges)
+            const { data: personEntities } = await supabase
+                .from('person_entities')
+                .select('canonical_name, mention_count')
+                .eq('user_id', userId)
+                .order('mention_count', { ascending: false })
+                .limit(15);
+
+            if (personEntities) {
+                const charData = personEntities.map(e => ({
+                    name: e.canonical_name,
+                    mentions: e.mention_count || 1
+                }));
                 setCharacterData(charData);
             }
 

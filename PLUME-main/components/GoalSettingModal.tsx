@@ -68,7 +68,7 @@ const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
             onGoalCreated(data);
             onClose();
         } catch (error) {
-            console.error('Error creating goal:', error);
+            logger.error('Error creating goal:', error);
             alert('Erreur lors de la création de l\'objectif');
         } finally {
             setIsLoading(false);
@@ -230,3 +230,4 @@ const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
 };
 
 export default GoalSettingModal;
+

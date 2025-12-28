@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { IconBook, IconFeather, IconGripVertical, IconPlus, IconTrash, IconPrinter, IconSave, IconSparkles } from './Icons';
 import { supabase } from '../services/supabaseClient';
+import { logger } from '../utils/logger';
 import { generateBookStructure } from '../services/bookArchitectService';
 import { Souvenir, BookStructure, BookChapter, BookStructureMode } from '../types';
 import jsPDF from 'jspdf';
@@ -59,11 +60,12 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                         tags: c.metadata?.tags || [],
                         status: c.status,
                         emotion: c.metadata?.emotion,
-                        imageUrl: c.image_url || c.metadata?.imageUrl || c.metadata?.image
+                        imageUrl: c.image_url || c.metadata?.imageUrl || c.metadata?.image,
+                        photos: c.metadata?.photos || []
                     }));
                 }
             } catch (dbError) {
-                console.error("Supabase load failed:", dbError);
+                logger.error("Supabase load failed:", dbError);
                 loadedSouvenirs = [];
             }
 
@@ -106,11 +108,11 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                     }
                 }
             } catch (err) {
-                console.error("Error loading book structure:", err);
+                logger.error("Error loading book structure:", err);
             }
 
         } catch (error) {
-            console.error('Error loading book data:', error);
+            logger.error('Error loading book data:', error);
         } finally {
             setIsLoading(false);
         }
@@ -119,7 +121,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
     // --- Drag & Drop Handlers ---
 
     const handleDragStart = (e: React.DragEvent, souvenirId: string) => {
-        console.log("Drag Start:", souvenirId);
+        logger.debug('Drag Start:', souvenirId);
         setDraggedSouvenirId(souvenirId);
         setIsDragging(true);
         e.dataTransfer.effectAllowed = 'copy';
@@ -137,7 +139,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
 
     const handleDropOnChapter = (e: React.DragEvent, chapterId: string) => {
         e.preventDefault();
-        console.log("Drop on chapter:", chapterId, "Souvenir:", draggedSouvenirId);
+        logger.debug('Drop on chapter', { chapterId, souvenirId: draggedSouvenirId });
 
         if (!draggedSouvenirId) return;
 
@@ -166,7 +168,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
     const handleSave = async () => {
         if (!userId) return;
         try {
-            console.log("Saving book structure...", bookStructure);
+            logger.debug('Saving book structure...', bookStructure);
 
             // 1. Check for existing active structure
             const { data: existing } = await supabase
@@ -211,7 +213,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
 
             alert("Livre sauvegardé avec succès !");
         } catch (error) {
-            console.error("Error saving book:", error);
+            logger.error("Error saving book:", error);
             alert("Erreur lors de la sauvegarde : " + (error as any).message);
         }
     };
@@ -227,7 +229,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                 reader.readAsDataURL(blob);
             });
         } catch (error) {
-            console.error("Error loading image for PDF:", error);
+            logger.error("Error loading image for PDF:", error);
             return "";
         }
     };
@@ -399,74 +401,96 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
 
                     checkPageBreak(50); // Ensure header space
 
-                    // Souvenir Title
+                    // Souvenir Title (Centered)
                     doc.setFont("times", "bold");
                     doc.setFontSize(18);
                     doc.setTextColor(30, 30, 30);
-                    doc.text(mem.title, margin, yPos);
+                    doc.text(mem.title, pageWidth / 2, yPos, { align: 'center' });
+                    yPos += 5;
+
+                    // Decorative line under title
+                    doc.setDrawColor(180, 83, 9); // Amber
+                    doc.setLineWidth(0.5);
+                    doc.line(pageWidth / 2 - 20, yPos, pageWidth / 2 + 20, yPos);
                     yPos += 15;
 
-                    // Image Handling
-                    if (mem.imageUrl) {
+                    // Multi-Photo Handling
+                    const allPhotos = mem.photos || (mem.imageUrl ? [mem.imageUrl] : []);
+
+                    for (const photoUrl of allPhotos) {
                         try {
-                            // Draw placeholder text while loading
-                            // Note: imageUrlToBase64 is async, so we must await it.
-                            const imgBase64 = await imageUrlToBase64(mem.imageUrl);
+                            const imgBase64 = await imageUrlToBase64(photoUrl);
 
                             if (imgBase64) {
                                 const imgProps = doc.getImageProperties(imgBase64);
-                                // Default width is full content width
-                                const imgWidth = maxLineWidth;
+                                const imgWidth = maxLineWidth * 0.8; // Slightly narrower for elegance
                                 const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
 
-                                // If image is too tall (> half page), scale it down
                                 let finalWidth = imgWidth;
                                 let finalHeight = imgHeight;
 
                                 if (imgHeight > (pageHeight / 2)) {
                                     finalHeight = pageHeight / 2;
                                     finalWidth = (imgProps.width * finalHeight) / imgProps.height;
-                                    // Center it if scaled down
                                 }
 
                                 const xImg = margin + ((maxLineWidth - finalWidth) / 2);
 
                                 if (checkPageBreak(finalHeight + 20)) {
-                                    // Re-add title if we broke page just for image? 
-                                    // For now, simpler to just draw image.
+                                    // Page broken, continue
                                 }
 
                                 doc.addImage(imgBase64, xImg, yPos, finalWidth, finalHeight);
-                                yPos += finalHeight + 15;
+                                yPos += finalHeight + 10;
                             }
                         } catch (err) {
-                            console.warn(`Could not load image for souvenir ${mem.title}`, err);
+                            console.warn(`Could not load photo for ${mem.title}`, err);
                         }
                     }
 
-                    // Content
-                    doc.setFont("times", "normal");
-                    doc.setFontSize(12);
-                    doc.setTextColor(0, 0, 0);
-                    doc.setLineHeightFactor(1.5); // Better readability
+                    if (allPhotos.length > 0) {
+                        yPos += 5; // Extra space after photos
+                    }
 
-                    const cleanText = (mem.narrative || mem.content || "").replace(/<[^>]*>/g, ''); // Simple strip tags just in case
-                    const textLines = doc.splitTextToSize(cleanText, maxLineWidth);
+                    // Content with Lettrine effect (first letter bigger)
+                    const cleanText = (mem.narrative || mem.content || "").replace(/<[^>]*>/g, '');
 
-                    textLines.forEach((line: string) => {
-                        checkPageBreak(8); // Check for line height
-                        doc.text(line, margin, yPos);
-                        yPos += 8;
-                    });
+                    if (cleanText.length > 0) {
+                        // First letter (Lettrine)
+                        const firstLetter = cleanText.charAt(0);
+                        const restOfFirstLine = cleanText.slice(1);
 
-                    yPos += 20; // Bottom spacing
+                        doc.setFont("times", "bold");
+                        doc.setFontSize(36);
+                        doc.setTextColor(180, 83, 9); // Amber accent
+                        doc.text(firstLetter, margin, yPos + 8);
 
-                    // Separator between souvenirs
-                    if (!checkPageBreak(20)) {
-                        doc.setTextColor(200, 200, 200);
-                        doc.setFontSize(14);
-                        doc.text("•", pageWidth / 2, yPos, { align: 'center' });
-                        yPos += 20;
+                        // Rest of text wraps around
+                        doc.setFont("times", "normal");
+                        doc.setFontSize(12);
+                        doc.setTextColor(0, 0, 0);
+                        doc.setLineHeightFactor(1.6);
+
+                        const textLines = doc.splitTextToSize(restOfFirstLine, maxLineWidth - 15);
+
+                        // First few lines indented for lettrine
+                        const lettrineLines = 3;
+                        textLines.forEach((line: string, idx: number) => {
+                            checkPageBreak(8);
+                            const xOffset = idx < lettrineLines ? margin + 15 : margin;
+                            doc.text(line, xOffset, yPos);
+                            yPos += 8;
+                        });
+                    }
+
+                    yPos += 15; // Bottom spacing
+
+                    // Ornamental Separator
+                    if (!checkPageBreak(25)) {
+                        doc.setTextColor(150, 150, 150);
+                        doc.setFontSize(16);
+                        doc.text("❧", pageWidth / 2, yPos, { align: 'center' });
+                        yPos += 25;
                     }
                 }
             }
@@ -520,7 +544,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
             }, 5000);
 
         } catch (error) {
-            console.error("Export Error:", error);
+            logger.error("Export Error:", error);
             alert("Erreur lors de l'export PDF. Vérifiez la console.");
         } finally {
             setIsGenerating(false);
@@ -541,7 +565,7 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                 setActiveChapterId(newStructure.chapters[0].id);
             }
         } catch (error) {
-            console.error("Error generating book structure:", error);
+            logger.error("Error generating book structure:", error);
             alert("Erreur lors de la génération de la structure. Vérifiez votre connexion ou réessayez.");
         } finally {
             setIsGenerating(false);
@@ -650,26 +674,60 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                         </div>
 
                         <div className="space-y-12">
-                            {chapter.memoryIds.map(memId => {
+                            {chapter.memoryIds.map((memId, memIndex) => {
                                 const mem = getSouvenirById(memId);
                                 if (!mem) return null;
+
+                                // Get text content and prepare lettrine
+                                const textContent = mem.narrative || mem.content || '';
+                                const firstLetter = textContent.charAt(0);
+                                const restOfText = textContent.slice(1);
+                                const allPhotos = mem.photos || (mem.imageUrl ? [mem.imageUrl] : []);
+
                                 return (
-                                    <div key={memId} className="prose prose-stone max-w-none">
-                                        <h3 className="text-2xl font-bold mb-4">{mem.title}</h3>
-                                        {/* Image Display */}
-                                        {mem.imageUrl && (
-                                            <img
-                                                src={mem.imageUrl}
-                                                alt={mem.title}
-                                                className="w-full h-64 object-cover rounded-lg mb-6 shadow-md"
-                                            />
+                                    <div key={memId} className="mb-16">
+                                        {/* Memory Title with decorative line */}
+                                        <div className="text-center mb-8">
+                                            <h3 className="text-2xl font-serif font-bold text-ink-900 inline-block relative">
+                                                {mem.title}
+                                                <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-16 h-0.5 bg-gradient-to-r from-transparent via-accent to-transparent"></div>
+                                            </h3>
+                                        </div>
+
+                                        {/* Photo Gallery */}
+                                        {allPhotos.length > 0 && (
+                                            <div className={`mb-8 ${allPhotos.length === 1 ? '' : 'grid grid-cols-2 gap-4'}`}>
+                                                {allPhotos.map((photo, photoIdx) => (
+                                                    <div key={photoIdx} className="relative group overflow-hidden rounded-lg shadow-lg">
+                                                        <img
+                                                            src={photo}
+                                                            alt={`${mem.title} - Photo ${photoIdx + 1}`}
+                                                            className={`w-full object-cover transition-transform duration-500 group-hover:scale-105 ${allPhotos.length === 1 ? 'h-80' : 'h-48'}`}
+                                                        />
+                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         )}
 
-                                        <div className="whitespace-pre-wrap text-lg text-justify">
-                                            {mem.narrative || mem.content}
+                                        {/* Text with Lettrine */}
+                                        <div className="font-serif text-lg leading-relaxed text-ink-800 text-justify">
+                                            {textContent.length > 0 && (
+                                                <>
+                                                    <span className="float-left text-6xl font-bold text-accent mr-3 mt-1 leading-none font-serif"
+                                                        style={{ fontFamily: "'Playfair Display', serif" }}>
+                                                        {firstLetter}
+                                                    </span>
+                                                    <span className="whitespace-pre-wrap">{restOfText}</span>
+                                                </>
+                                            )}
                                         </div>
-                                        <div className="flex justify-center mt-8">
-                                            <span className="text-accent text-xl">***</span>
+
+                                        {/* Ornamental Separator */}
+                                        <div className="flex justify-center items-center mt-12 gap-4">
+                                            <div className="h-px w-16 bg-gradient-to-r from-transparent to-stone-300"></div>
+                                            <span className="text-stone-400 text-2xl">❧</span>
+                                            <div className="h-px w-16 bg-gradient-to-l from-transparent to-stone-300"></div>
                                         </div>
                                     </div>
                                 );
@@ -781,10 +839,10 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                     <div className="flex gap-3">
                         <button
                             onClick={() => setIsPreviewMode(!isPreviewMode)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isPreviewMode ? 'bg-stone-800 text-white' : 'bg-white border border-stone-200 text-ink-700 hover:bg-stone-50'}`}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isPreviewMode ? 'bg-accent text-white' : 'bg-white border border-stone-200 text-ink-700 hover:bg-stone-50'}`}
                         >
                             <IconBook className="w-4 h-4" />
-                            {isPreviewMode ? '�0diter' : 'Lire'}
+                            {isPreviewMode ? 'Éditer' : 'Lire'}
                         </button>
                         <button
                             onClick={handleSave}
@@ -882,6 +940,28 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Rationale Block (IA Explanation) */}
+                            {bookStructure.rationale && (
+                                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-6 mb-8 shadow-sm">
+                                    <div className="flex items-start gap-4">
+                                        <div className="bg-amber-500 text-white p-2 rounded-lg shrink-0">
+                                            <IconSparkles className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-amber-900 mb-2 flex items-center gap-2">
+                                                💡 Structure proposée par Plume
+                                                <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                                                    Mode {bookStructure.mode === 'expert' ? 'Biographe IA' : bookStructure.mode === 'thematic' ? 'Thématique' : 'Chronologique'}
+                                                </span>
+                                            </h3>
+                                            <p className="text-amber-800 text-sm leading-relaxed whitespace-pre-line">
+                                                {bookStructure.rationale}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Chapters List */}
                             {bookStructure.chapters.map((chapter, index) => (
@@ -992,3 +1072,4 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
         </div>
     );
 };
+

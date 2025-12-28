@@ -120,7 +120,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialView = 'l
             });
             if (error) throw error;
         } catch (err: any) {
-            console.error("Google Auth Error:", err);
+            logger.error("Google Auth Error:", err);
             setError(err.message || "Erreur de connexion Google");
             setLoading(false);
         }

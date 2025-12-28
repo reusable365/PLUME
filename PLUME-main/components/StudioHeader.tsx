@@ -96,10 +96,10 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                 <button
                     onClick={onNewSouvenirClick}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold text-sm text-slate-600 hover:bg-slate-100 transition-all"
-                    title="Commencer un nouveau souvenir (Archive la conversation actuelle)"
+                    title="Commencer un nouveau souvenir"
                 >
                     <IconSparkles className="w-4 h-4" />
-                    <span>Nouveau</span>
+                    <span>Nouveau souvenir</span>
                 </button>
 
                 <button

@@ -1,11 +1,12 @@
 
-
 import React, { useState } from 'react';
 import { IconFeather, IconBook, IconClock, IconLock, IconCamera } from './Icons';
 import AuthModal from './AuthModal';
 import ExamplesSection from './ExamplesSection';
 import FAQSection from './FAQSection';
 import SupportSection from './SupportSection';
+import RecentActivityTicker from './RecentActivityTicker';
+import FeaturesSection from './FeaturesSection';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -26,78 +27,49 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
 
       {/* Hero Section */}
       <header className="bg-[#5c2b2b] text-white relative overflow-hidden">
+        {/* Animated Background Elements */}
         <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/aged-paper.png')]"></div>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-rose-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        </div>
+
         <div className="max-w-7xl mx-auto px-6 py-24 md:py-32 relative z-10 flex flex-col items-center text-center">
-          <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mb-6 backdrop-blur-sm border border-white/20">
-            <IconFeather className="w-8 h-8 text-amber-400" />
+          <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-8 backdrop-blur-md border border-white/20 shadow-2xl animate-custom-bounce">
+            <IconFeather className="w-10 h-10 text-amber-400" />
           </div>
-          <h1 className="font-serif text-5xl md:text-7xl font-bold mb-6 tracking-tight">PLUME</h1>
-          <p className="text-xl md:text-2xl text-amber-100 font-serif italic max-w-2xl mb-10 leading-relaxed">
-            "Immortalisez votre existence. Transformez vos souvenirs épars en une autobiographie d'exception grâce à l'intelligence artificielle."
+
+          <h1 className="font-serif text-5xl md:text-7xl font-bold mb-6 tracking-tight leading-tight">
+            Vos souvenirs méritent <br />
+            <span className="text-amber-400">l'éternité</span>
+          </h1>
+
+          <p className="text-xl md:text-2xl text-amber-50 font-serif italic max-w-3xl mb-12 leading-relaxed opacity-90">
+            "Écrivez le livre de votre vie, simplement. Plume transforme vos fragments de mémoire en une autobiographie d'exception."
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
+
+          <div className="flex flex-col sm:flex-row gap-5 items-center justify-center w-full max-w-md sm:max-w-none z-20">
             <button
               onClick={() => openAuth('signup')}
-              className="px-10 py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-full font-semibold text-lg shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
+              className="w-full sm:w-auto px-8 py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-full font-semibold text-lg shadow-lg hover:shadow-amber-500/30 transition-all transform hover:-translate-y-1 hover:scale-105"
             >
               Commencer mon Récit
             </button>
             <button
               onClick={() => openAuth('login')}
-              className="px-10 py-4 bg-white/10 hover:bg-white/20 text-white rounded-full font-semibold text-lg border-2 border-white/30 hover:border-white/50 backdrop-blur-sm transition-all transform hover:-translate-y-1"
+              className="w-full sm:w-auto px-8 py-4 bg-white/5 hover:bg-white/10 text-white rounded-full font-semibold text-lg border border-white/20 hover:border-white/40 backdrop-blur-sm transition-all transform hover:-translate-y-1"
             >
               Ouvrir mon Livre
             </button>
           </div>
-          <p className="mt-4 text-sm text-white/60">Déjà 12,000 pages écrites aujourd'hui.</p>
+
+          <RecentActivityTicker />
+
         </div>
       </header>
 
-      {/* Features Grid */}
-      <section className="py-20 px-6 max-w-7xl mx-auto">
-        <div className="text-center mb-16">
-          <span className="text-amber-700 font-bold tracking-widest text-xs uppercase">Une Technologie Unique</span>
-          <h2 className="font-serif text-4xl font-bold text-ink-900 mt-2">Bien plus qu'un simple éditeur de texte</h2>
-          <p className="mt-4 text-ink-500 max-w-2xl mx-auto">Plume combine une maïeutique bienveillante à une analyse sémantique de pointe pour transformer le chaos de la mémoire en une œuvre d'art.</p>
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Feature 1: L'Architecte */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
-            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-700 mb-6 shadow-inner">
-              <IconFeather className="w-7 h-7" />
-            </div>
-            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">Plume, votre Architecte</h3>
-            <p className="text-ink-500 leading-relaxed text-sm">
-              Il ne vous laisse jamais seul face à la page blanche. Grâce à sa <strong>maïeutique active</strong>, il vous pose les questions qui débloquent les souvenirs enfouis, s'adaptant à votre ton et votre rythme.
-              <br /><span className="text-xs font-bold text-amber-600 mt-2 block uppercase">Modes : Émotion • Action • Sensoriel</span>
-            </p>
-          </div>
-
-          {/* Feature 2: PhotoCatalyst */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-700 mb-6 shadow-inner">
-              <IconCamera className="w-7 h-7" />
-            </div>
-            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">PhotoCatalyst™</h3>
-            <p className="text-ink-500 leading-relaxed text-sm">
-              Une image vaut mille mots, mais Plume vous aide à les écrire. Notre IA de vision <strong>analyse vos photos</strong> pour en extraire les lieux, les époques et même les émotions, servant de point de départ instantané à l'écriture.
-            </p>
-          </div>
-
-          {/* Feature 3: Le Sanctuaire */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-ink-100 hover:shadow-xl transition-all hover:-translate-y-1">
-            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-700 mb-6 shadow-inner">
-              <IconBook className="w-7 h-7" />
-            </div>
-            <h3 className="font-serif text-xl font-bold mb-3 text-ink-900">Le Sanctuaire</h3>
-            <p className="text-ink-500 leading-relaxed text-sm">
-              Vos souvenirs sont précieux. Plume les organise automatiquement dans une <strong>Boutique des Souvenirs</strong> interactive, classés par personnes, lieux et tags, prêts à être assemblés dans votre chef-d'œuvre final.
-              <br /><span className="text-xs font-bold text-emerald-600 mt-2 block uppercase">Score de Maturité Intégré</span>
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* Features Process Section */}
+      <FeaturesSection />
 
       {/* Examples Section */}
       <ExamplesSection />

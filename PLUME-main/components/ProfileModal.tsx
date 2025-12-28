@@ -84,7 +84,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onComplete }) => {
             onComplete(updatedUser);
 
         } catch (error) {
-            console.error('Error updating profile:', error);
+            logger.error('Error updating profile:', error);
             // Even if everything fails, try to complete with local state to unblock user
             const fallbackUser: User = {
                 ...user,

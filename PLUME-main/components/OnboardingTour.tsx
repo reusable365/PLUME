@@ -1,91 +1,59 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Joyride, { CallBackProps, STATUS, Step, Styles } from 'react-joyride';
 import { supabase } from '../services/supabaseClient';
 import { logger } from '../utils/logger';
+import { TOUR_STEPS, getTourStepsForSection } from '../data/helpContent';
 import '../styles/onboarding.css';
 
 interface OnboardingTourProps {
     run: boolean;
     onFinish: () => void;
+    /** Section spécifique à montrer (optionnel) */
+    section?: 'atelier' | 'sanctuaire' | 'dashboard' | 'univers' | 'livre' | 'repertoire' | 'all';
 }
 
-export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish }) => {
-    const [steps] = useState<Step[]>([
-        {
-            target: 'body',
-            content: (
-                <div className="text-center">
-                    <h3 className="font-serif text-xl font-bold text-amber-900 mb-2">Bienvenue dans votre Atelier</h3>
-                    <p>Laissez-moi vous faire visiter votre nouvel espace d'écriture. Cela ne prendra qu'une minute.</p>
-                </div>
-            ),
-            placement: 'center',
-            disableBeacon: true,
-        },
-        {
-            target: '[data-tour="input-area"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">Votre Espace de Parole</h4>
-                    <p>C'est ici que tout commence. Racontez vos souvenirs naturellement, comme si vous parliez à un ami. Plume vous écoute et vous guide.</p>
-                </div>
-            ),
-            placement: 'top',
-        },
-        {
-            target: '[data-tour="action-buttons"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">Enrichissez vos Récits</h4>
-                    <p>Utilisez ces outils pour donner vie à vos souvenirs :</p>
-                    <ul className="list-disc pl-4 mt-2 text-sm space-y-1">
-                        <li><strong>Style</strong> : Ajustez le ton de Plume</li>
-                        <li><strong>Contexte</strong> : Situez le souvenir dans le temps</li>
-                        <li><strong>Photo</strong> : Importez une image pour raviver la mémoire</li>
-                    </ul>
-                </div>
-            ),
-        },
-        {
-            target: '[data-tour="left-panel"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">Votre Coffre à Idées</h4>
-                    <p>Retrouvez ici toutes vos idées notées à la volée. Cliquez sur une idée pour commencer à l'écrire.</p>
-                </div>
-            ),
-            placement: 'right',
-        },
-        {
-            target: '[data-tour="compilation-panel"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">La Magie en Temps Réel</h4>
-                    <p>Pendant que vous discutez, Plume tisse votre récit ici même. Vous verrez votre souvenir prendre forme sous vos yeux.</p>
-                </div>
-            ),
-            placement: 'left',
-        },
-        {
-            target: '[data-tour="graver-button"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">Gravez pour l'Éternité</h4>
-                    <p>Une fois satisfait de votre récit, cliquez ici pour le "Graver". Il rejoindra alors votre collection dans la Boutique des Souvenirs.</p>
-                </div>
-            ),
-        },
-        {
-            target: '[data-tour="navigation"]',
-            content: (
-                <div>
-                    <h4 className="font-bold text-amber-800 mb-1">Explorez votre Univers</h4>
-                    <p>Naviguez entre l'Atelier, votre Tableau de Bord, et la Boutique où tous vos souvenirs sont précieusement gardés.</p>
-                </div>
-            ),
-            placement: 'bottom',
-        },
-    ]);
+export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish, section = 'all' }) => {
+    const [validSteps, setValidSteps] = useState<Step[]>([]);
+
+    // Check which targets actually exist in the DOM
+    useEffect(() => {
+        if (!run) return;
+
+        // Small delay to let DOM render
+        const timer = setTimeout(() => {
+            const tourSteps = section === 'all'
+                ? TOUR_STEPS.sort((a, b) => a.order - b.order)
+                : getTourStepsForSection(section);
+
+            const filteredSteps = tourSteps.filter((step) => {
+                // 'body' always exists
+                if (step.target === 'body') return true;
+                // Check if element exists
+                const element = document.querySelector(step.target);
+                return element !== null;
+            });
+
+            // If no specific targets found, show only centered welcome/end steps
+            const stepsToShow = filteredSteps.length > 0
+                ? filteredSteps
+                : tourSteps.filter(s => s.target === 'body');
+
+            setValidSteps(stepsToShow.map((step) => ({
+                target: step.target,
+                content: (
+                    <div className={step.target === 'body' ? 'text-center' : ''}>
+                        <h4 className="font-bold text-amber-800 mb-2 text-lg">{step.title}</h4>
+                        <p className="text-ink-600 leading-relaxed">{step.content}</p>
+                    </div>
+                ),
+                placement: step.placement || 'auto',
+                disableBeacon: true, // Always disable beacon for cleaner UX
+                spotlightClicks: true,
+            })));
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [run, section]);
 
     const handleJoyrideCallback = async (data: CallBackProps) => {
         const { status } = data;
@@ -93,11 +61,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish })
 
         if (finishedStatuses.includes(status)) {
             onFinish();
-            // Mark as completed in DB
-            try {
-                const { error } = await supabase.rpc('mark_tutorial_complete');
-                if (error) {
-                    // Fallback if RPC doesn't exist yet or fails
+            // Mark as completed in DB only for full tour
+            if (section === 'all') {
+                try {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (user) {
                         await supabase
@@ -105,18 +71,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish })
                             .update({ has_completed_tutorial: true })
                             .eq('id', user.id);
                     }
+                } catch (err) {
+                    logger.error("Error saving tutorial status:", err);
                 }
-            } catch (err) {
-                logger.error("Error saving tutorial status:", err);
             }
         }
     };
 
-    const customStyles: Styles = {
+    const customStyles: Partial<Styles> = {
         options: {
             arrowColor: '#fff',
             backgroundColor: '#fff',
-            overlayColor: 'rgba(0, 0, 0, 0.5)',
+            overlayColor: 'rgba(0, 0, 0, 0.6)',
             primaryColor: '#b45309', // amber-700
             textColor: '#4b5563', // gray-600
             zIndex: 10000,
@@ -124,6 +90,16 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish })
         tooltip: {
             borderRadius: '1rem',
             padding: '1.5rem',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            maxWidth: '380px',
+        },
+        tooltipTitle: {
+            fontSize: '1.125rem',
+            fontWeight: 700,
+        },
+        tooltipContent: {
+            fontSize: '0.95rem',
+            lineHeight: 1.6,
         },
         buttonNext: {
             backgroundColor: '#b45309',
@@ -131,35 +107,54 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ run, onFinish })
             fontFamily: 'inherit',
             fontWeight: 600,
             borderRadius: '0.5rem',
-            padding: '0.5rem 1rem',
+            padding: '0.625rem 1.25rem',
+            fontSize: '0.9rem',
         },
         buttonBack: {
-            color: '#9ca3af',
-            marginRight: '1rem',
+            color: '#6b7280',
+            marginRight: '0.75rem',
+            fontWeight: 500,
         },
         buttonSkip: {
             color: '#9ca3af',
+            fontSize: '0.85rem',
+        },
+        spotlight: {
+            borderRadius: '0.75rem',
         },
     };
 
+    // Don't render until we have valid steps
+    if (!run || validSteps.length === 0) {
+        return null;
+    }
+
     return (
         <Joyride
-            steps={steps}
+            steps={validSteps}
             run={run}
             continuous
             showProgress
             showSkipButton
+            scrollToFirstStep
+            disableScrolling={false}
             styles={customStyles}
             callback={handleJoyrideCallback}
             locale={{
-                back: 'Précédent',
+                back: '← Précédent',
                 close: 'Fermer',
-                last: 'Terminer',
-                next: 'Suivant',
-                skip: 'Passer',
+                last: '🎉 Terminé !',
+                next: 'Suivant →',
+                skip: 'Passer le tour',
+                open: 'Ouvrir le dialogue',
             }}
             floaterProps={{
-                disableAnimation: true,
+                disableAnimation: false,
+                styles: {
+                    floater: {
+                        transition: 'transform 0.3s ease-out',
+                    },
+                },
             }}
         />
     );

@@ -93,10 +93,23 @@ export const analyzeLifeUniverse = async (
     messages: ChatMessage[],
     forceRefresh: boolean = false
 ): Promise<LifeUniverseData> => {
-    // Check cache
+    // FIX: Clear cache if forcing refresh (before cache check)
+    if (forceRefresh && universeCache[userId]) {
+        logger.debug('Clearing cached Life Universe data (forceRefresh=true)');
+        delete universeCache[userId];
+    }
+
+    // Check cache (only if NOT forcing refresh)
     if (!forceRefresh && universeCache[userId] && Date.now() - universeCache[userId].timestamp < CACHE_TTL) {
         logger.debug('Returning cached Life Universe data');
         return universeCache[userId].data;
+    }
+
+    // Validate API key early
+    if (!process.env.GEMINI_API_KEY) {
+        const errorMsg = "Configuration manquante : La clé API Gemini (GEMINI_API_KEY) n'est pas définie. Vérifiez votre fichier .env.local";
+        logger.error(errorMsg);
+        throw new Error(errorMsg);
     }
 
     try {
@@ -117,6 +130,8 @@ export const analyzeLifeUniverse = async (
             };
         }
 
+        logger.info(`Analyzing Life Universe with ${narratives.length} narratives`);
+
         // 2. Analyze with AI
         const [places, relationships, timeline, periods] = await Promise.all([
             extractPlaces(narratives, userProfile),
@@ -128,8 +143,9 @@ export const analyzeLifeUniverse = async (
         // 3. Save to database (Non-blocking)
         try {
             await saveLifeUniverseData(userId, { places, relationships, timeline, periods });
+            logger.debug('Life Universe data saved to database');
         } catch (dbError) {
-            console.warn("Could not save Life Universe data (tables might be missing). Showing in-memory results.", dbError);
+            logger.warn("Could not save Life Universe data (tables might be missing). Showing in-memory results.", dbError);
         }
 
         // 4. Generate insights
@@ -145,18 +161,14 @@ export const analyzeLifeUniverse = async (
 
         // Update cache
         universeCache[userId] = { timestamp: Date.now(), data: result };
+        logger.debug('Life Universe data cached successfully');
 
         return result;
 
     } catch (error) {
         logger.error('Failed to analyze Life Universe', error);
-        return {
-            places: [],
-            relationships: [],
-            timeline: [],
-            periods: [],
-            insights: []
-        };
+        // Re-throw the error so the UI can handle it properly
+        throw error;
     }
 };
 

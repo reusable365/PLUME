@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { analyzeLifeUniverse, LifeUniverseData, Place, Relationship, TimelineEvent, LifePeriod } from '../services/lifeUniverseService';
+import { analyzeLifeUniverse, clearLifeUniverseCache, LifeUniverseData, Place, Relationship, TimelineEvent, LifePeriod } from '../services/lifeUniverseService';
 import { User, ChatMessage } from '../types';
+import { logger } from '../utils/logger';
 import { IconMapPin, IconUsers, IconClock, IconTrendingUp, IconMap, IconCalendar, IconHeart, IconHome, IconBriefcase, IconPlane, IconStar, IconZap, IconRefresh } from './Icons';
 
 interface LifeUniverseProps {
@@ -28,14 +29,38 @@ const LifeUniverse: React.FC<LifeUniverseProps> = ({ userId, userProfile, messag
         try {
             const universeData = await analyzeLifeUniverse(userId, userProfile, messages, forceRefresh);
             setData(universeData);
-        } catch (error) {
-            console.error('Error loading Life Universe:', error);
+
+            // Only show success toast on manual refresh
+            if (forceRefresh) {
+                // We'll use a simple alert since we don't have showToast in this component
+                // In a real app, you'd pass showToast as a prop or use a context
+                logger.info('Univers de Vie actualisé avec succès!');
+            }
+        } catch (error: any) {
+            logger.error('Error loading Life Universe:', error);
+
+            // Show user-friendly error message
+            const errorMessage = error.message || "Impossible de charger l'Univers de Vie. Vérifiez votre connexion internet.";
+            alert(`❌ ${errorMessage}`);
+
+            // Set empty data on error so UI doesn't break
+            setData({
+                places: [],
+                relationships: [],
+                timeline: [],
+                periods: [],
+                insights: [errorMessage]
+            });
         } finally {
             setIsLoading(false);
         }
     };
 
     const handleRefresh = () => {
+        // Clear cache and force refresh
+        if (userId) {
+            clearLifeUniverseCache(userId);
+        }
         loadLifeUniverse(true);
     };
 
@@ -78,10 +103,12 @@ const LifeUniverse: React.FC<LifeUniverseProps> = ({ userId, userProfile, messag
                         </div>
                         <button
                             onClick={handleRefresh}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white transition-all"
+                            disabled={isLoading}
+                            className={`flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white transition-all ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                            title={isLoading ? "Actualisation en cours..." : "Rafraîchir l'analyse de votre univers"}
                         >
-                            <IconRefresh className="w-4 h-4" />
-                            <span className="text-sm font-medium">Actualiser</span>
+                            <IconRefresh className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            <span className="text-sm font-medium">{isLoading ? 'Mise à jour...' : 'Actualiser'}</span>
                         </button>
                     </div>
 
@@ -510,3 +537,4 @@ const PeriodModal: React.FC<{ period: LifePeriod; onClose: () => void }> = ({ pe
 );
 
 export default LifeUniverse;
+

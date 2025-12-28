@@ -175,25 +175,54 @@ Génère exactement 5 insights en JSON pur (pas de markdown, pas de \`\`\`json).
         try {
             const ai = this.getAI();
             const chat = ai.chats.create({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-2.0-flash-exp',
                 config: {
                     temperature: 0.8,
                     maxOutputTokens: 2000,
+                    responseMimeType: "application/json" // Force JSON response
                 }
             });
 
             const result = await chat.sendMessage({ message: prompt });
             const responseText = result.text;
 
-            // Nettoyer la réponse (enlever les ```json si présents)
+            // Nettoyer la réponse de manière agressive
             let cleanedText = responseText ? responseText.trim() : '';
+
+            // Enlever les blocs de code markdown
             if (cleanedText.startsWith('```json')) {
                 cleanedText = cleanedText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
             } else if (cleanedText.startsWith('```')) {
                 cleanedText = cleanedText.replace(/^```\n?/, '').replace(/\n?```$/, '');
             }
 
-            const rawInsights = JSON.parse(cleanedText);
+            // Enlever les espaces/retours avant et après
+            cleanedText = cleanedText.trim();
+
+            // Vérifier que ça commence par [ et finit par ]
+            if (!cleanedText.startsWith('[')) {
+                const start = cleanedText.indexOf('[');
+                if (start !== -1) cleanedText = cleanedText.substring(start);
+            }
+            if (!cleanedText.endsWith(']')) {
+                const end = cleanedText.lastIndexOf(']');
+                if (end !== -1) cleanedText = cleanedText.substring(0, end + 1);
+            }
+
+            let rawInsights;
+            try {
+                rawInsights = JSON.parse(cleanedText);
+            } catch (parseError) {
+                console.warn('JSON parse failed, trying fallback cleanup:', parseError);
+                // Tentative de réparation du JSON
+                cleanedText = cleanedText
+                    .replace(/,\s*]/g, ']') // Virgules avant ]
+                    .replace(/,\s*}/g, '}') // Virgules avant }
+                    .replace(/\n/g, ' ')    // Retours à la ligne
+                    .replace(/\r/g, '');    // Retours chariot
+
+                rawInsights = JSON.parse(cleanedText);
+            }
 
             // Mapper les indices aux IDs réels
             const insights: LifeInsight[] = rawInsights.map((raw: any) => ({

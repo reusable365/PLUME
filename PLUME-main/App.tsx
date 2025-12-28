@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendMessageToPlume, synthesizeNarrative, generateTitleAndMetadata, generateKickstarter } from './services/geminiService';
 import { supabase, supabaseConfigError } from './services/supabaseClient';
 import { soundManager } from './services/soundManager';
+import { logger } from './utils/logger';
+import { useDebounce, DEBOUNCE_DELAYS } from './hooks/useDebounce';
 import { detectGaps } from './services/analyticsService';
 import { ChatMessage, PlumeResponse, Tone, Length, AppState, Idea, ViewType, User, Fidelity, PhotoCatalystResult, DigitalMemory } from './types';
 import MessageBubble from './components/MessageBubble';
@@ -16,16 +18,26 @@ import PlumeDashboard from './components/PlumeDashboard';
 import PhotoCatalyst from './components/PhotoCatalyst';
 import BoutiqueSouvenirs from './components/BoutiqueSouvenirs';
 import LifeUniverse from './components/LifeUniverse';
+import AddressBook from './components/AddressBook';
 import { BookView } from './components/BookView';
 import { DigitalMemoryImporter } from './components/DigitalMemoryImporter';
 import { DigitalMemoryTimeline } from './components/DigitalMemoryTimeline';
 import SupportSection from './components/SupportSection';
 import { StudioView } from './components/StudioView';
+import { RegenerateSettings } from './components/RegenerateModal';
 import { ValidationModal, ValidationData } from './components/ValidationModal';
+import { SouvenirTransitionModal } from './components/SouvenirTransitionModal';
+import EntityConfirmationModal from './components/EntityConfirmationModal';
+import { analyzeEntityMentions, processEntityConfirmations } from './services/entityResolutionService';
+import type { EntityResolutionSuggestion, EntityConfirmation } from './types/entityResolution';
 import { StyleSelector } from './components/StyleSelector';
 import { IconMicrophone, IconStopCircle, IconSettings, IconSend, IconBook, IconFeather, IconLayout, IconLogOut, IconUser, IconClock, IconMagic, IconBookOpen, IconCheck, IconScissors, IconX, IconRefresh, IconTarget, IconSearch, IconCamera, IconUsers, IconMapPin, IconHelp, IconSun, IconMoon, IconSunset, IconEye, IconEyeOff, IconVolume2, IconVolumeX, IconMap, IconSparkles, IconShare2, IconCloud } from './components/Icons';
 import { GuestView } from './components/GuestView';
 import GuestMemoryCard from './components/GuestMemoryCard';
+import ContributionReviewPanel from './components/ContributionReviewPanel';
+import GuestLandingPage from './components/GuestLandingPage';
+import { HelpButton } from './components/HelpButton';
+import { OnboardingTour } from './components/OnboardingTour';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
 
@@ -51,6 +63,13 @@ function encode(bytes: Uint8Array) {
     return btoa(binary);
 }
 
+
+// Feature Flags - Set to true to enable features in development only
+const IS_DEV_MODE = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.includes('192.168.')
+);
 
 // Simple Toast Notification Component
 const Toast: React.FC<{ message: string; type: 'success' | 'error' }> = ({ message, type }) => (
@@ -112,7 +131,12 @@ const App: React.FC = () => {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showPhotoCatalyst, setShowPhotoCatalyst] = useState(false);
     const [showValidationModal, setShowValidationModal] = useState(false);
+    const [showTransitionModal, setShowTransitionModal] = useState(false);
+    const [transitionMode, setTransitionMode] = useState<'graver' | 'germer' | null>(null);
     const [suggestedTitle, setSuggestedTitle] = useState('');
+    // Entity Resolution States
+    const [showEntityModal, setShowEntityModal] = useState(false);
+    const [entitySuggestions, setEntitySuggestions] = useState<EntityResolutionSuggestion[]>([]);
     const [showSupport, setShowSupport] = useState(false);
     const [timeContext, setTimeContext] = useState<string | null>(null);
     const [showTimeContext, setShowTimeContext] = useState(false);
@@ -145,8 +169,18 @@ const App: React.FC = () => {
 
     // Regeneration State
     const [regenerationInfo, setRegenerationInfo] = useState<{ originalAssistantMessageId: string, originalUserPrompt: string } | null>(null);
+    const [isRegenerating, setIsRegenerating] = useState(false);
+
+    // Witness Contributions State
+    const [showContributionsPanel, setShowContributionsPanel] = useState(false);
+    const [pendingContributionsCount, setPendingContributionsCount] = useState(0);
+
+    // Help & Onboarding State
+    const [showOnboardingTour, setShowOnboardingTour] = useState(false);
+    const [tourSection, setTourSection] = useState<'atelier' | 'sanctuaire' | 'dashboard' | 'univers' | 'livre' | 'repertoire' | 'all'>('all');
 
     const [draftContent, setDraftContent] = useState('');
+    const debouncedDraftContent = useDebounce(draftContent, DEBOUNCE_DELAYS.AUTO_SAVE); // 5s debounce for auto-save
     const [draftPhotos, setDraftPhotos] = useState<string[]>([]);
     const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
@@ -175,44 +209,147 @@ const App: React.FC = () => {
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const aiInstanceRef = useRef<GoogleGenAI | null>(null);
     const loadingInProgress = useRef<boolean>(false); // 🔒 Guard against multiple loads
+    const freshSessionStarted = useRef<boolean>(false); // 🔒 Guard against reloading right after new session
+    const justPublished = useRef<boolean>(false); // 🔒 Guard against auto-save race condition after publishing
 
     const showToast = useCallback((message: string, type: 'success' | 'error', duration = 3000) => {
         setToast({ message, type });
         setTimeout(() => setToast(null), duration);
     }, []);
 
+    // FIX BUG #1: Persist currentView in localStorage
+    // FIX BUG #1: Persist currentView in localStorage
+    useEffect(() => {
+        // Check for Guest Invites (URL params)
+        const params = new URLSearchParams(window.location.search);
+        const mode = params.get('mode');
+        const token = params.get('token');
+
+        if (mode === 'guest' && token) {
+            // Public guest mode
+            setCurrentView('guest_landing');
+            setGuestToken(token);
+            return;
+        }
+
+        // Restore last view from localStorage on mount
+        const savedView = localStorage.getItem('plume_current_view') as ViewType;
+        if (savedView && savedView !== 'landing') {
+            setCurrentView(savedView);
+        }
+    }, []);
+
+    // Guest Token State
+    const [guestToken, setGuestToken] = useState<string | null>(null);
+
+    // FIX UX MOBILE: Gérer le viewport dynamique pour le clavier virtuel
+    console.log('[DEBUG] App RENDER. View:', currentView, 'Session:', !!session, 'Token:', guestToken);
+
+    const [isInputLoaded, setIsInputLoaded] = useState(false);
+
+    useEffect(() => {
+        // Gérer le resize du viewport (clavier mobile)
+        const handleResize = () => {
+            const vh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', `${vh}px`);
+        };
+
+        window.addEventListener('resize', handleResize);
+        handleResize(); // Appel initial
+
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    useEffect(() => {
+        // Marquer comme chargé après le premier rendu pour activer les transitions
+        const timer = setTimeout(() => setIsInputLoaded(true), 150);
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Save currentView to localStorage whenever it changes
+    useEffect(() => {
+        if (currentView !== 'landing') {
+            localStorage.setItem('plume_current_view', currentView);
+        }
+    }, [currentView]);
+
+    // Load pending contributions count for the notification badge
+    useEffect(() => {
+        const loadPendingContributions = async () => {
+            if (!session?.user?.id) return;
+            try {
+                // FIX: Use guest_invites directly
+                const { count, error } = await supabase
+                    .from('guest_invites')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_id', session.user.id)
+                    .eq('status', 'answered'); // Count answered invites as pending contributions
+
+                if (!error && count !== null) {
+                    setPendingContributionsCount(count);
+                }
+            } catch (error) {
+                logger.error('Error loading pending contributions count:', error);
+            }
+        };
+
+        loadPendingContributions();
+    }, [session?.user?.id]);
+
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
             if (session) loadUserData(session.user);
         }).catch(err => {
-            console.error("Supabase session error:", err);
+            logger.error("Supabase session error:", err);
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
             if (session) {
-                if (!userProfile || !userProfile.firstName || !userProfile.birthDate) loadUserData(session.user); // Reload if profile is incomplete
-                if (currentView === 'landing') setCurrentView('dashboard');
+                if (!userProfile || !userProfile.firstName || !userProfile.birthDate) loadUserData(session.user);
+
+                // FIX BUG #1: Only set dashboard on initial login, not when changing tabs
+                if (currentView === 'landing') {
+                    // Try to restore saved view first
+                    const savedView = localStorage.getItem('plume_current_view') as ViewType;
+                    setCurrentView(savedView || 'dashboard');
+                }
+                // Otherwise, keep the current view (don't force dashboard)
             } else {
-                setCurrentView('landing');
+                // FIX: Don't kick out guests
+                // Only redirect to landing if we are NOT in a guest view
+                // We access the state directly or trust the closure because of [currentView] dep
+                if (currentView !== 'guest_landing') {
+                    setCurrentView('landing');
+                    localStorage.removeItem('plume_current_view'); // Clear saved view on logout
+                }
+
                 setUserProfile(null);
                 setState({ messages: [], ideas: [], aggregatedData: { dates: new Set(), locations: new Set(), characters: new Set(), tags: new Set() } });
             }
         });
 
         return () => subscription.unsubscribe();
-    }, []);
+    }, [currentView]);
 
     const loadUserData = async (authUser: any) => {
         // 🔒 CRITICAL: Prevent multiple simultaneous loads (React StrictMode + Supabase triggers)
         if (loadingInProgress.current) {
-            console.log('⏭️ loadUserData SKIPPED (already in progress)');
+            logger.debug('loadUserData SKIPPED (already in progress)');
+            return;
+        }
+
+        // 🔒 CRITICAL: Don't reload if we just started a fresh session
+        if (freshSessionStarted.current) {
+            logger.debug('loadUserData SKIPPED (fresh session just started, preventing reload)');
+            // Reset the flag after skipping once
+            freshSessionStarted.current = false;
             return;
         }
 
         loadingInProgress.current = true;
-        console.log('🔄 loadUserData CALLED for user:', authUser?.email);
+        logger.debug('loadUserData CALLED for user:', authUser?.email);
         if (!authUser) {
             loadingInProgress.current = false;
             return;
@@ -252,7 +389,7 @@ const App: React.FC = () => {
             if (localProfileStr) {
                 try {
                     localProfile = JSON.parse(localProfileStr);
-                } catch (e) { console.error("Error parsing local profile", e); }
+                } catch (e) { logger.error("Error parsing local profile", e); }
             }
 
             if (profileData && !profileError) {
@@ -265,7 +402,7 @@ const App: React.FC = () => {
                     name: profileData.first_name ? `${profileData.first_name} ${profileData.last_name || ''} `.trim() : currentUser.name
                 };
             } else if (localProfile) {
-                console.log("Using local profile fallback");
+                logger.debug('Using local profile fallback');
                 currentUser = { ...currentUser, ...localProfile };
             }
 
@@ -306,7 +443,11 @@ const App: React.FC = () => {
                         return true;
                     })
                     .map((m: any) => {
-                        if (m.isDivider) {
+                        // Check both column-based and content-based divider flags
+                        const isColumnDivider = m.isDivider || m.is_divider;
+                        const isContentDivider = m.content && typeof m.content === 'object' && m.content.isDivider === true;
+
+                        if (isColumnDivider || isContentDivider) {
                             return { id: m.id, role: 'assistant' as const, content: '', timestamp: new Date(m.created_at).getTime(), isDivider: true };
                         }
                         if (m.role === 'user') {
@@ -330,7 +471,17 @@ const App: React.FC = () => {
                 const lastDividerIndex = allMessages.map((m: any) => m.isDivider).lastIndexOf(true);
 
                 if (lastDividerIndex !== -1) {
+                    // FIX BUG #2: Only keep messages AFTER the divider (exclude the divider itself)
                     loadedMessages = allMessages.slice(lastDividerIndex + 1);
+
+                    // Additional check: If there's ONLY a divider and kickstarter in the new session,
+                    // and no user messages yet, keep only the kickstarter message
+                    const userMessagesAfterDivider = loadedMessages.filter(m => m.role === 'user');
+                    if (userMessagesAfterDivider.length === 0 && loadedMessages.length > 0) {
+                        // This is a fresh session with just the kickstarter
+                        // Keep only the first assistant message (the kickstarter)
+                        loadedMessages = loadedMessages.slice(0, 1);
+                    }
                 } else {
                     loadedMessages = allMessages;
                 }
@@ -392,17 +543,23 @@ const App: React.FC = () => {
 
             try {
                 console.time('⏱️ Loading draft');
-                const { data: drafts } = await supabase.from('chapters').select('*').eq('user_id', authUser.id).eq('status', 'draft_workspace').order('updated_at', { ascending: false }).limit(1);
-                console.timeEnd('⏱️ Loading draft');
-                const draftData = drafts?.[0];
-                if (draftData) { setDraftContent(draftData.content || ''); setWorkspaceId(draftData.id); }
+                // 🔒 CRITICAL: Don't reload draft if we just started a fresh session
+                if (!freshSessionStarted.current) {
+                    const { data: drafts } = await supabase.from('chapters').select('*').eq('user_id', authUser.id).eq('status', 'draft_workspace').order('updated_at', { ascending: false }).limit(1);
+                    console.timeEnd('⏱️ Loading draft');
+                    const draftData = drafts?.[0];
+                    if (draftData) { setDraftContent(draftData.content || ''); setWorkspaceId(draftData.id); }
+                } else {
+                    console.timeEnd('⏱️ Loading draft');
+                    logger.debug('Draft loading skipped (fresh session)');
+                }
             } catch (e) { console.warn("Erreur chargement brouillon", e); }
 
-            console.log('✅ Data loaded - Messages:', loadedMessages.length, 'Ideas:', mappedIdeas.length);
+            logger.info('Data loaded', { messages: loadedMessages.length, ideas: mappedIdeas.length });
             setState({ messages: loadedMessages, ideas: mappedIdeas, aggregatedData: initialAggregatedData });
-            console.log('✅ loadUserData COMPLETE');
+            logger.debug('loadUserData COMPLETE');
         } catch (err) {
-            console.error("Critical error loading user data:", err);
+            logger.error("Critical error loading user data:", err);
             showToast("Erreur de chargement des données. Vérifiez votre connexion.", 'error');
         } finally {
             setIsLoading(false);
@@ -423,22 +580,62 @@ const App: React.FC = () => {
         }
     }, [userProfile]);
 
+    // OPTIMIZED AUTO-SAVE: Uses debounced draft content (5s delay instead of 2s)
+    // FIX: Don't create new chapters during edit mode - only update existing ones
     useEffect(() => {
-        if (!session?.user) return;
-        const timer = setTimeout(async () => {
-            if (draftContent || workspaceId) {
-                try {
-                    if (workspaceId) {
-                        await supabase.from('chapters').update({ content: draftContent, updated_at: new Date().toISOString() }).eq('id', workspaceId);
-                    } else if (draftContent) {
-                        const { data, error } = await supabase.from('chapters').insert({ user_id: session.user.id, title: 'Brouillon Atelier', content: draftContent, status: 'draft_workspace' }).select().single();
-                        if (data && !error) setWorkspaceId(data.id);
-                    }
-                } catch (err) { console.error("Auto-save failed:", err); showToast("Erreur auto-sauvegarde du brouillon.", "error"); }
+        if (!session?.user || !debouncedDraftContent) {
+            if (!debouncedDraftContent && justPublished.current) {
+                // Reset the flag once the debounce catches up to the empty state
+                justPublished.current = false;
+                logger.debug('Auto-save guard reset (content cleared)');
             }
-        }, 2000);
-        return () => clearTimeout(timer);
-    }, [draftContent, session, workspaceId, showToast]);
+            return;
+        }
+
+        // 🔒 CRITICAL FIX: Prevent ghost drafts after publishing
+        if (justPublished.current) {
+            logger.debug('Auto-save SKIPPED (just published)');
+            return;
+        }
+
+        const saveDraft = async () => {
+            try {
+                if (workspaceId) {
+                    // Update existing chapter (either recalled souvenir or previously created draft)
+                    await supabase.from('chapters').update({ content: debouncedDraftContent, updated_at: new Date().toISOString() }).eq('id', workspaceId);
+                    logger.debug('Draft auto-saved (update)');
+                } else {
+                    // Only create a NEW draft if this is genuinely new content (not recalled from Boutique)
+                    // Check if there's already a draft_workspace for this user to avoid duplicates
+                    const { data: existingDraft } = await supabase
+                        .from('chapters')
+                        .select('id')
+                        .eq('user_id', session.user.id)
+                        .eq('status', 'draft_workspace')
+                        .single();
+
+                    if (existingDraft) {
+                        // Update existing draft_workspace instead of creating new one
+                        await supabase.from('chapters').update({ content: debouncedDraftContent, updated_at: new Date().toISOString() }).eq('id', existingDraft.id);
+                        setWorkspaceId(existingDraft.id);
+                        logger.debug('Draft auto-saved (reused existing workspace)');
+                    } else {
+                        // Create new draft_workspace only if none exists
+                        const { data, error } = await supabase.from('chapters').insert({ user_id: session.user.id, title: 'Brouillon Atelier', content: debouncedDraftContent, status: 'draft_workspace' }).select().single();
+                        if (data && !error) {
+                            setWorkspaceId(data.id);
+                            logger.debug('Draft auto-saved (new)');
+                        }
+                    }
+                }
+            } catch (err) {
+                logger.error('Auto-save failed', err);
+                showToast("Erreur auto-sauvegarde du brouillon.", "error");
+            }
+        };
+
+        saveDraft();
+    }, [debouncedDraftContent, session, workspaceId, showToast]);
 
     const handleLogout = async () => { await supabase.auth.signOut(); };
     const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
@@ -446,7 +643,7 @@ const App: React.FC = () => {
 
     const saveEntityToDB = async (type: string, value: string, userId: string) => {
         const { error } = await supabase.from('entities').upsert({ user_id: userId, type, value }, { onConflict: 'user_id,type,value' }).select();
-        if (error) console.error("Error saving entity:", error);
+        if (error) logger.error("Error saving entity:", error);
     };
 
     const triggerSend = useCallback(async (text: string, imageUrl?: string, hiddenText?: string, isSacred?: boolean) => {
@@ -539,7 +736,7 @@ const App: React.FC = () => {
             });
 
         } catch (error) {
-            console.error(error);
+            logger.error(error);
             showToast("Erreur Gemini: " + (error as Error).message, 'error');
             // FIX: Do NOT put error text in 'narrative', otherwise it gets auto-compiled into the book!
             const errorMsg: ChatMessage = {
@@ -596,6 +793,114 @@ const App: React.FC = () => {
         }
     };
 
+    // Regenerate a specific assistant message with new style settings
+    const handleRegenerate = async (messageId: string, settings: RegenerateSettings) => {
+        if (isRegenerating || !session?.user) return;
+
+        // Find the assistant message to regenerate
+        const messageIndex = state.messages.findIndex(m => m.id === messageId);
+        if (messageIndex === -1) return;
+
+        const targetMessage = state.messages[messageIndex];
+        if (targetMessage.role !== 'assistant') return;
+
+        // Find the corresponding user message (should be the one before)
+        let userMessage: ChatMessage | null = null;
+        for (let i = messageIndex - 1; i >= 0; i--) {
+            if (state.messages[i].role === 'user') {
+                userMessage = state.messages[i];
+                break;
+            }
+        }
+
+        if (!userMessage) {
+            showToast("Impossible de trouver le message original.", 'error');
+            return;
+        }
+
+        const userText = typeof userMessage.content === 'string'
+            ? userMessage.content
+            : (userMessage.content as any).text || '';
+
+        if (!userText.trim()) {
+            showToast("Le message original est vide.", 'error');
+            return;
+        }
+
+        setIsRegenerating(true);
+
+        try {
+            // Map authenticity to fidelity
+            const newFidelity = settings.authenticity >= 90 ? Fidelity.HAUTE : Fidelity.BASSE;
+
+            // Build API history (messages before the one being regenerated)
+            const relevantMessages = state.messages.slice(0, messageIndex).filter(m => !m.isDivider && m.id !== 'welcome');
+            const apiHistory = relevantMessages.map(m => {
+                if (m.role === 'user') {
+                    const text = typeof m.content === 'string' ? m.content : (m.content as any).text || '';
+                    return { role: 'user' as const, parts: [{ text: text as string }] as [{ text: string }] };
+                } else {
+                    const c = m.content as PlumeResponse;
+                    const conversation = c.conversation ? `<CONVERSATION>${c.conversation}</CONVERSATION>` : '';
+                    const narrative = c.narrative ? `<NARRATIVE>${c.narrative}</NARRATIVE>` : '';
+                    return { role: 'model' as const, parts: [{ text: `${conversation}\n${narrative}` }] as [{ text: string }] };
+                }
+            }) as { role: 'user' | 'model', parts: [{ text: string }] }[];
+
+            // Call the AI with new settings
+            const response = await sendMessageToPlume(
+                userText,
+                settings.tone,
+                settings.length,
+                newFidelity,
+                apiHistory,
+                '',
+                userProfile
+            );
+
+            // Create the new assistant message with the same ID (to replace in-place)
+            const newAssistantMessage: ChatMessage = {
+                ...targetMessage,
+                content: response
+            };
+
+            // Update state: replace the old message with the new one
+            setState(prev => ({
+                ...prev,
+                messages: prev.messages.map(m =>
+                    m.id === messageId ? newAssistantMessage : m
+                )
+            }));
+
+            // Update in database
+            await supabase.from('messages').update({ content: response }).eq('id', messageId);
+
+            // Update the draft content: find and replace the old narrative with the new one
+            const oldContent = targetMessage.content as PlumeResponse;
+            const oldNarrative = oldContent.narrative || '';
+            const newNarrative = response.narrative || '';
+
+            if (oldNarrative && newNarrative) {
+                setDraftContent(prev => {
+                    // Try to find and replace the old narrative
+                    if (prev.includes(oldNarrative.trim())) {
+                        return prev.replace(oldNarrative.trim(), newNarrative.trim());
+                    }
+                    // If not found, it might have been slightly modified, just append
+                    return prev;
+                });
+            }
+
+            showToast("Texte régénéré avec succès !", 'success');
+
+        } catch (error) {
+            logger.error("Regeneration failed:", error);
+            showToast("Erreur lors de la régénération: " + (error as Error).message, 'error');
+        } finally {
+            setIsRegenerating(false);
+        }
+    };
+
     const handleStartRecording = async () => {
         if (isLoading) return;
 
@@ -605,7 +910,7 @@ const App: React.FC = () => {
 
         if (SpeechRecognition) {
             // ✅ USE WEB SPEECH API (Native, Free, Fast)
-            console.log('🎤 Using Web Speech API (Native)');
+            logger.debug('Using Web Speech API (Native)');
             const recognition = new SpeechRecognition();
             recognition.lang = 'fr-FR';
             recognition.continuous = true;
@@ -616,20 +921,20 @@ const App: React.FC = () => {
 
             recognition.onstart = () => {
                 setIsRecording(true);
-                console.log('🎤 Web Speech: Recording started');
+                logger.debug('Web Speech: Recording started');
             };
 
             recognition.onresult = (event) => {
                 for (let i = event.resultIndex; i < event.results.length; i++) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript + ' ';
-                        console.log('📝 Web Speech partial:', event.results[i][0].transcript);
+                        logger.debug('Web Speech partial', event.results[i][0].transcript);
                     }
                 }
             };
 
             recognition.onerror = (event) => {
-                console.error('❌ Web Speech error:', event.error);
+                logger.error('❌ Web Speech error:', event.error);
                 setIsRecording(false);
                 if (event.error === 'no-speech') {
                     showToast("Aucun son détecté. Parlez plus fort ou vérifiez votre micro.", 'error');
@@ -640,8 +945,8 @@ const App: React.FC = () => {
 
             recognition.onend = async () => {
                 setIsRecording(false);
-                console.log('🏁 Web Speech: Recording ended');
-                console.log('📄 Final transcript:', finalTranscript.trim());
+                logger.debug('Web Speech: Recording ended');
+                logger.debug('Final transcript:', finalTranscript.trim());
 
                 if (finalTranscript.trim()) {
                     setIsLoading(true);
@@ -660,7 +965,7 @@ const App: React.FC = () => {
 
         } else {
             // ⚠️ FALLBACK: Use Gemini Audio API for unsupported browsers
-            console.log('⚠️ Web Speech API not supported, using Gemini fallback');
+            logger.debug('Web Speech API not supported, using Gemini fallback');
 
             if (!process.env.GEMINI_API_KEY) {
                 showToast("Clé API Gemini manquante pour l'enregistrement vocal.", 'error');
@@ -703,27 +1008,27 @@ const App: React.FC = () => {
                             if (message.serverContent?.inputTranscription) {
                                 const text = message.serverContent.inputTranscription.text;
                                 currentLiveInputTranscriptionRef.current += text;
-                                console.log('📝 Transcription partielle:', text);
+                                logger.debug('Transcription partielle:', text);
                                 // MODE DICTAPHONE : On n'affiche PAS la transcription en temps réel
                                 // setInput(currentLiveInputTranscriptionRef.current); ❌ SUPPRIMÉ
                             }
                             if (message.serverContent?.turnComplete) {
-                                console.log('🏁 Transcription terminée');
+                                logger.debug('Transcription terminée');
                                 const finalTranscription = currentLiveInputTranscriptionRef.current.trim();
-                                console.log('📄 Texte brut:', finalTranscription);
+                                logger.debug('Texte brut:', finalTranscription);
 
                                 if (finalTranscription) {
                                     // Nettoie et optimise
                                     setIsLoading(true);
-                                    console.log('🧹 Début du nettoyage...');
+                                    logger.debug('Début du nettoyage...');
                                     const { cleanAndOptimizeTranscription } = await import('./services/transcriptionCleanerService');
                                     const cleanedText = await cleanAndOptimizeTranscription(finalTranscription);
-                                    console.log('✨ Texte nettoyé:', cleanedText);
+                                    logger.debug('Texte nettoyé:', cleanedText);
 
                                     // MODE DICTAPHONE : On met le texte dans l'input, l'utilisateur valide
                                     setInput(cleanedText);
-                                    console.log('✅ Texte mis dans input');
-                                    showToast("✅ Transcription prête ! Vous pouvez relire et envoyer.", 'success');
+                                    logger.debug('Texte mis dans input');
+                                    showToast("Transcription prête ! Vous pouvez relire et envoyer.", 'success');
                                     setIsLoading(false);
 
                                     // ❌ SUPPRIMÉ : await triggerSend(cleanedText);
@@ -735,7 +1040,7 @@ const App: React.FC = () => {
                             }
                         },
                         onerror: (e: ErrorEvent) => {
-                            console.error('Live session error:', e);
+                            logger.error('Live session error:', e);
                             showToast("Erreur d'enregistrement vocal: " + e.message, 'error');
                             handleStopRecording();
                         },
@@ -754,7 +1059,7 @@ const App: React.FC = () => {
                 });
 
             } catch (err: any) {
-                console.error('Error starting recording:', err);
+                logger.error('Error starting recording:', err);
                 showToast("Erreur d'accès au microphone. Vérifiez les permissions: " + err.message, 'error');
                 setIsLoading(false);
                 setIsRecording(false);
@@ -774,7 +1079,7 @@ const App: React.FC = () => {
             // Stop Gemini Audio API
             liveSessionPromiseRef.current?.then((session) => {
                 session.close();
-            }).catch(e => console.error("Error closing live session:", e));
+            }).catch(e => logger.error("Error closing live session:", e));
             liveSessionPromiseRef.current = null;
 
             if (scriptProcessorRef.current) {
@@ -783,7 +1088,7 @@ const App: React.FC = () => {
                 scriptProcessorRef.current = null;
             }
             if (inputAudioContextRef.current) {
-                inputAudioContextRef.current.close().catch(e => console.error("Error closing audio context:", e));
+                inputAudioContextRef.current.close().catch(e => logger.error("Error closing audio context:", e));
                 inputAudioContextRef.current = null;
             }
 
@@ -838,7 +1143,7 @@ const App: React.FC = () => {
                 await supabase.from('messages').update({ content: newContent }).eq('id', m.id);
             }
             setState(prev => ({ ...prev, messages: [...updatedMessages, aiMsg] }));
-        } catch (error) { console.error("Synthesis Failed", error); showToast("Erreur de synthèse.", 'error'); } finally { setIsLoading(false); }
+        } catch (error) { logger.error("Synthesis Failed", error); showToast("Erreur de synthèse.", 'error'); } finally { setIsLoading(false); }
     };
 
     const handleSelectAngle = async (messageId: string, index: number) => {
@@ -862,7 +1167,7 @@ const App: React.FC = () => {
                 showToast("Idée ajoutée au coffre !", 'success');
             }
         } catch (err: any) {
-            console.error("Erreur DB Idea (Insert Riche):", err);
+            logger.error("Erreur DB Idea (Insert Riche):", err);
             showToast("Erreur : Impossible d'ajouter l'idée. DB non à jour ?", 'error');
             const legacyContent = `[${title.toUpperCase()} | ${tag}] ${content} `;
             const { data: legacyData } = await supabase.from('ideas').insert({ user_id: session.user.id, content: legacyContent }).select().single();
@@ -875,7 +1180,7 @@ const App: React.FC = () => {
         const previousIdeas = state.ideas;
         setState(prev => ({ ...prev, ideas: prev.ideas.filter(i => i.id !== id) }));
         const { error } = await supabase.from('ideas').delete().eq('id', id);
-        if (error) { console.error("Erreur suppression:", error); setState(prev => ({ ...prev, ideas: previousIdeas })); showToast("Erreur : Impossible de supprimer l'idée.", 'error'); }
+        if (error) { logger.error("Erreur suppression:", error); setState(prev => ({ ...prev, ideas: previousIdeas })); showToast("Erreur : Impossible de supprimer l'idée.", 'error'); }
         else { showToast("Idée supprimée.", 'success'); }
     };
 
@@ -899,7 +1204,7 @@ const App: React.FC = () => {
                 await supabase.from('ideas').delete().eq('id', id);
             }
         } catch (e) {
-            console.error("Conversion error", e);
+            logger.error("Conversion error", e);
         }
     };
 
@@ -941,33 +1246,47 @@ const App: React.FC = () => {
 
     const handleValidationConfirm = async (data: ValidationData) => {
         setIsLoading(true);
+
+        // Determine status based on transition mode
+        const saveStatus = transitionMode === 'germer' ? 'draft' : 'published';
+
         try {
+            // DEBUG: Log workspaceId to understand update vs insert decision
+            logger.debug('handleValidationConfirm - workspaceId:', workspaceId);
+            logger.debug('handleValidationConfirm - saveStatus:', saveStatus);
+
             // Save Chapter with Validated Data
             if (workspaceId) {
+                logger.info(`UPDATING existing chapter: ${workspaceId}`);
                 const { error } = await supabase.from('chapters').update({
                     title: data.title,
                     content: data.content,
-                    status: 'published',
+                    status: saveStatus,
+                    image_url: draftPhotos[0] || null,
                     metadata: {
                         dates: data.metadata.dates,
                         locations: data.metadata.locations,
                         characters: data.metadata.people,
-                        tags: data.metadata.tags
+                        tags: data.metadata.tags,
+                        photos: draftPhotos
                     },
                     updated_at: new Date().toISOString()
                 }).eq('id', workspaceId);
                 if (error) throw error;
             } else {
+                logger.info('INSERTING new chapter (workspaceId is null)');
                 const { error } = await supabase.from('chapters').insert({
                     user_id: session.user.id,
                     title: data.title,
                     content: data.content,
-                    status: 'published',
+                    status: saveStatus,
+                    image_url: draftPhotos[0] || null,
                     metadata: {
                         dates: data.metadata.dates,
                         locations: data.metadata.locations,
                         characters: data.metadata.people,
-                        tags: data.metadata.tags
+                        tags: data.metadata.tags,
+                        photos: draftPhotos
                     }
                 });
                 if (error) throw error;
@@ -1022,6 +1341,7 @@ const App: React.FC = () => {
                 .neq('id', workspaceId || '00000000-0000-0000-0000-000000000000');
 
             setDraftContent('');
+            justPublished.current = true; // 🔒 Lock auto-save to prevent ghost draft
             setWorkspaceId(null);
             setShowValidationModal(false);
             setSuggestedTitle('');
@@ -1031,7 +1351,7 @@ const App: React.FC = () => {
 
             // 1. Add divider
             const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: '', timestamp: Date.now(), isDivider: true };
-            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
+            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, is_divider: true });
 
             // 2. Context Analysis (Gaps & Ideas)
             const gaps = await detectGaps(session.user.id, userProfile?.birthDate);
@@ -1085,7 +1405,7 @@ const App: React.FC = () => {
             setDraftPhotos([]); // Clear photos after saving souvenir
 
         } catch (err: any) {
-            console.error("Error saving chapter:", err);
+            logger.error("Error saving chapter:", err);
             showToast("Erreur sauvegarde : " + err.message, 'error');
         } finally {
             setIsLoading(false);
@@ -1107,7 +1427,7 @@ const App: React.FC = () => {
             });
             setSuggestedTitle(autoTitle);
         } catch (error) {
-            console.error('Error generating title:', error);
+            logger.error('Error generating title:', error);
             // Fallback intelligent : utiliser la première phrase du contenu
             const firstSentence = draftContent.split(/[.!?]/)[0].trim();
             const fallbackTitle = firstSentence.substring(0, 50) || 'Mon Souvenir';
@@ -1116,6 +1436,76 @@ const App: React.FC = () => {
             setIsLoading(false);
         }
 
+        // ENTITY RESOLUTION: Analyze before opening ValidationModal
+        await analyzeEntitiesBeforeGraver();
+    };
+
+    // Entity Resolution: Analyze narrative for person mentions
+    const analyzeEntitiesBeforeGraver = async () => {
+        if (!session?.user) {
+            setShowValidationModal(true);
+            return;
+        }
+
+        try {
+            // Get the latest narrative from messages
+            const lastMessage = state.messages[state.messages.length - 1];
+            if (!lastMessage || lastMessage.role !== 'assistant') {
+                setShowValidationModal(true);
+                return;
+            }
+
+            const narrative = typeof lastMessage.content === 'string'
+                ? lastMessage.content
+                : (lastMessage.content as PlumeResponse).narrative;
+
+            if (!narrative || narrative.length < 50) {
+                // Too short to analyze
+                setShowValidationModal(true);
+                return;
+            }
+
+            // Analyze entities
+            const suggestions = await analyzeEntityMentions(narrative, session.user.id);
+
+            if (suggestions.length > 0) {
+                // Show entity confirmation modal first
+                setEntitySuggestions(suggestions);
+                setShowEntityModal(true);
+            } else {
+                // No entities detected, proceed to validation
+                setShowValidationModal(true);
+            }
+        } catch (error) {
+            logger.error('Entity analysis failed:', error);
+            // Continue to validation modal even if entity analysis fails
+            setShowValidationModal(true);
+        }
+    };
+
+    // Entity Resolution: Handle user confirmations
+    const handleEntityConfirmation = async (confirmations: EntityConfirmation[]) => {
+        try {
+            const lastMessageId = state.messages[state.messages.length - 1]?.id;
+            await processEntityConfirmations(
+                confirmations,
+                session!.user.id,
+                lastMessageId
+            );
+            setShowEntityModal(false);
+            setShowValidationModal(true);
+        } catch (error) {
+            logger.error('Error processing entity confirmations:', error);
+            showToast('Erreur lors de la sauvegarde des personnes', 'error');
+            // Still proceed to validation
+            setShowEntityModal(false);
+            setShowValidationModal(true);
+        }
+    };
+
+    // Entity Resolution: Skip entity confirmation
+    const handleEntitySkip = () => {
+        setShowEntityModal(false);
         setShowValidationModal(true);
     };
 
@@ -1164,14 +1554,14 @@ Sois bref et professionnel.`;
                     user_id: session.user.id,
                     role: 'assistant',
                     content: response,
-                    isDivider: true // Mark this as a new session start in DB
+                    is_divider: true // Mark this as a new session start in DB
                 });
 
                 setState(prev => ({ ...prev, messages: [aiMsg] }));
                 showToast("Mode édition activé", 'success');
 
             } catch (err) {
-                console.error("Error starting edit session:", err);
+                logger.error("Error starting edit session:", err);
                 // Fallback UI
                 setState(prev => ({
                     ...prev,
@@ -1193,7 +1583,7 @@ Sois bref et professionnel.`;
             }
 
         } else {
-            console.error("Error loading chapter:", error);
+            logger.error("Error loading chapter:", error);
             showToast("Erreur lors du chargement du souvenir", 'error');
         }
     };
@@ -1215,7 +1605,7 @@ Sois bref et professionnel.`;
             });
             showToast("Date ajoutée à la chronologie !", "success");
         } catch (error) {
-            console.error("Error adding manual date:", error);
+            logger.error("Error adding manual date:", error);
             showToast("Erreur: Impossible d'ajouter la date.", "error");
         } finally {
             setIsLoading(false);
@@ -1227,7 +1617,7 @@ Sois bref et professionnel.`;
         setState(prev => ({ ...prev, messages: prev.messages.filter(m => m.id !== messageId) }));
         const { error } = await supabase.from('messages').delete().eq('id', messageId);
         if (error) {
-            console.error("Failed to delete message:", error);
+            logger.error("Failed to delete message:", error);
             showToast("Erreur de suppression", 'error');
             setState(prev => ({ ...prev, messages: originalMessages }));
         }
@@ -1301,7 +1691,7 @@ Sois bref et professionnel.`;
             });
 
         } catch (error) {
-            console.error(error);
+            logger.error(error);
             showToast("Erreur durant la régénération: " + (error as Error).message, 'error');
         } finally {
             setIsLoading(false);
@@ -1368,7 +1758,7 @@ Sois bref et professionnel.`;
 
             // 1. Add divider to history (for persistence)
             const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: '', timestamp: Date.now(), isDivider: true };
-            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
+            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, is_divider: true });
 
             // 2. Detect narrative gaps (dark zones)
             const gaps = await detectGaps(session.user.id, userProfile?.birthDate);
@@ -1419,11 +1809,11 @@ Sois bref et professionnel.`;
             showToast("Nouvelle session démarrée ! Plume vous propose des pistes.", 'success');
 
         } catch (error) {
-            console.error("Error in handleNewSequence:", error);
+            logger.error("Error in handleNewSequence:", error);
 
             // Fallback: simple divider
             const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: '', timestamp: Date.now(), isDivider: true };
-            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, isDivider: true });
+            await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: {}, is_divider: true });
             setState(prev => ({ ...prev, messages: [dividerMsg] }));
 
             showToast("Nouvelle session démarrée.", 'success');
@@ -1516,7 +1906,7 @@ Date: ${dateStr}.
 
                     setState(prev => ({ ...prev, messages: [...prev.messages, aiMsg] }));
                 } catch (err) {
-                    console.error("Error generating welcome:", err);
+                    logger.error("Error generating welcome:", err);
                 } finally {
                     setIsLoading(false);
                 }
@@ -1572,6 +1962,21 @@ Date: ${dateStr}.
         }
     }, [state.messages, currentView]);
 
+    // FIX: Handle Guest Landing View specifically before session check
+    if (currentView === 'guest_landing' && guestToken) {
+        return (
+            <GuestLandingPage
+                token={guestToken}
+                onComplete={() => {
+                    setCurrentView('landing');
+                    setGuestToken(null);
+                    window.history.pushState({}, '', '/');
+                }}
+                onLogin={() => setCurrentView('landing')} // Fallback to normal login
+            />
+        );
+    }
+
     if (!session || currentView === 'landing') return <LandingPage onLogin={() => { }} />;
 
     const lastAssistantMsgIndex = state.messages.map(m => m.role === 'assistant' && !m.isDivider).lastIndexOf(true);
@@ -1589,6 +1994,125 @@ Date: ${dateStr}.
                     onClose={() => setShowPhotoCatalyst(false)}
                 />
             )}
+
+            {/* Entity Resolution Modal - Shows BEFORE ValidationModal */}
+            {showEntityModal && (
+                <EntityConfirmationModal
+                    suggestions={entitySuggestions}
+                    onConfirm={handleEntityConfirmation}
+                    onSkip={handleEntitySkip}
+                />
+            )}
+
+            {/* Souvenir Transition Modal - Shows when starting a new memory */}
+            {showTransitionModal && (
+                <SouvenirTransitionModal
+                    isOpen={showTransitionModal}
+                    onClose={() => setShowTransitionModal(false)}
+                    onGraver={() => {
+                        setShowTransitionModal(false);
+                        setTransitionMode('graver');
+                        setShowValidationModal(true);
+                    }}
+                    onLaisserGermer={() => {
+                        setShowTransitionModal(false);
+                        setTransitionMode('germer');
+                        setShowValidationModal(true);
+                    }}
+                    onAbandonner={async () => {
+                        setShowTransitionModal(false);
+                        setIsLoading(true);
+
+                        try {
+                            // 1. Mark ALL existing active workspaces as archived in DB so none reload
+                            // This prevents falling back to an older "draft_workspace" if we only archive the current ID
+                            if (session?.user) {
+                                const { error } = await supabase
+                                    .from('chapters')
+                                    .update({ status: 'archived', updated_at: new Date().toISOString() })
+                                    .eq('user_id', session.user.id)
+                                    .eq('status', 'draft_workspace'); // Target all active drafts
+
+                                if (error) {
+                                    logger.error('Error abandoning chapters:', error);
+                                } else {
+                                    logger.debug(`All active workspaces for user marked as archived`);
+                                }
+                            }
+
+                            // 2. Archive without saving messages (except divider), then start new session
+                            if (session?.user) {
+                                const { error: dividerError } = await supabase.from('messages').insert({
+                                    user_id: session.user.id,
+                                    role: 'assistant',
+                                    content: { isDivider: true } // Store divider flag in content
+                                });
+                                if (dividerError) {
+                                    logger.error('Error inserting divider:', dividerError);
+                                    showToast("Erreur lors de la création du séparateur", 'error');
+                                }
+                            }
+
+                            // Generate contextual welcome message
+                            const { data: freshIdeas } = await supabase.from('ideas').select('*').order('created_at', { ascending: false }).limit(5);
+                            const gaps = await detectGaps(session?.user?.id || '', userProfile?.birthDate);
+
+                            const kickstarterResponse = await generateKickstarter(
+                                userProfile,
+                                freshIdeas || [],
+                                gaps
+                            );
+
+                            const welcomeMsg: ChatMessage = {
+                                id: uuidv4(),
+                                role: 'assistant',
+                                timestamp: Date.now() + 1,
+                                content: kickstarterResponse
+                            };
+
+                            // Save welcome message to DB
+                            if (session?.user) {
+                                const { error: msgError } = await supabase.from('messages').insert({
+                                    user_id: session.user.id,
+                                    role: 'assistant',
+                                    content: welcomeMsg.content
+                                });
+                                if (msgError) {
+                                    logger.error('Error inserting kickstarter message:', msgError);
+                                    showToast("Erreur lors de la sauvegarde du message de bienvenue", 'error');
+                                }
+                            }
+
+                            setState(prev => ({
+                                ...prev,
+                                messages: [welcomeMsg],
+                                aggregatedData: {
+                                    dates: new Set<string>(),
+                                    locations: new Set<string>(),
+                                    characters: new Set<string>(),
+                                    tags: new Set<string>()
+                                }
+                            }));
+                            setDraftContent('');
+                            // CRITICAL: Clear workspace ID so we don't keep updating the abandoned one
+                            setWorkspaceId(null);
+                            setDraftPhotos([]);
+                            // 🔒 CRITICAL: Prevent loadUserData from overwriting our fresh session
+                            freshSessionStarted.current = true;
+                            showToast("Nouveau souvenir commencé ✨", 'success');
+                        } catch (error) {
+                            console.error("Error starting new session:", error);
+                            showToast("Erreur lors du démarrage", 'error');
+                        } finally {
+                            setIsLoading(false);
+                        }
+                    }}
+                    hasContent={state.messages.filter(m => m.role === 'user' && !m.isDivider).length > 0}
+                    suggestedTitle={suggestedTitle || "Souvenir en cours"}
+                    contentPreview={draftContent.substring(0, 150)}
+                />
+            )}
+
             {showValidationModal && (
                 <ValidationModal
                     isOpen={showValidationModal}
@@ -1629,9 +2153,15 @@ Date: ${dateStr}.
                                 }
                             };
                         })(),
-                        dates: Array.from(state.aggregatedData.dates),
-                        locations: Array.from(state.aggregatedData.locations),
-                        people: Array.from(state.aggregatedData.characters),
+                        dates: Array.from(state.aggregatedData.dates).filter(d => draftContent.toLowerCase().includes(d.toLowerCase())),
+                        locations: Array.from(state.aggregatedData.locations).filter(l => draftContent.toLowerCase().includes(l.toLowerCase())),
+                        people: Array.from(state.aggregatedData.characters).filter(p => {
+                            // Check if any significant part of the name appears in the text
+                            // This handles "Maman" vs "Jeanne" if mapped, but at least removes "Neil Armstrong" from "Toscane"
+                            const parts = p.toLowerCase().split(' ').filter(part => part.length > 2);
+                            if (parts.length === 0) return draftContent.toLowerCase().includes(p.toLowerCase());
+                            return parts.some(part => draftContent.toLowerCase().includes(part));
+                        }),
                         tags: Array.from(state.aggregatedData.tags)
                     }}
                     isLoading={isLoading}
@@ -1662,17 +2192,13 @@ Date: ${dateStr}.
                     <button onClick={() => setCurrentView('studio')} className={`nav-btn ${currentView === 'studio' ? 'active' : ''}`}><IconLayout className="w-5 h-5" />L'Atelier des Souvenirs</button>
                     <button onClick={() => setCurrentView('dashboard')} className={`nav-btn ${currentView === 'dashboard' ? 'active' : ''}`}><IconTarget className="w-5 h-5" />Tableau de Bord</button>
                     <button onClick={() => setCurrentView('boutique')} className={`nav-btn ${currentView === 'boutique' ? 'active' : ''}`}><IconSearch className="w-5 h-5" />La Boutique des Souvenirs</button>
-                    <button onClick={() => setCurrentView('digital-memory')} className={`nav-btn ${currentView === 'digital-memory' ? 'active' : ''}`}><IconCloud className="w-5 h-5" />Mémoire Digitale</button>
+                    {IS_DEV_MODE && <button onClick={() => setCurrentView('digital-memory')} className={`nav-btn ${currentView === 'digital-memory' ? 'active' : ''}`}><IconCloud className="w-5 h-5" />Mémoire Digitale</button>}
                     <button onClick={() => setCurrentView('universe')} className={`nav-btn ${currentView === 'universe' ? 'active' : ''}`}><IconMap className="w-5 h-5" />Univers de Vie</button>
+                    <button onClick={() => setCurrentView('address-book')} className={`nav-btn ${currentView === 'address-book' ? 'active' : ''}`}><IconUsers className="w-5 h-5" />Carnet d'Adresses</button>
                     <button onClick={() => setCurrentView('manuscript')} className={`nav-btn ${currentView === 'manuscript' ? 'active' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
                     <button onClick={() => setCurrentView('guest_view')} className={`nav-btn ${currentView === 'guest_view' ? 'active' : ''}`}><IconUsers className="w-5 h-5" />Appel à Témoins</button>
                 </nav>
                 <div className="flex items-center gap-6">
-                    <div className="hidden md:flex items-center bg-ink-100 rounded-full p-1 border border-ink-200 mr-2">
-                        <button onClick={() => setTheme('aube')} className={`p-1.5 rounded-full transition-all ${theme === 'aube' ? 'bg-white shadow text-accent' : 'text-ink-400 hover:text-ink-600'}`} title="Aube"><IconSun className="w-4 h-4" /></button>
-                        <button onClick={() => setTheme('crepuscule')} className={`p-1.5 rounded-full transition-all ${theme === 'crepuscule' ? 'bg-white shadow text-amber-700' : 'text-ink-400 hover:text-ink-600'}`} title="Crépuscule"><IconSunset className="w-4 h-4" /></button>
-                        <button onClick={() => setTheme('nuit')} className={`p-1.5 rounded-full transition-all ${theme === 'nuit' ? 'bg-ink-700 shadow text-white' : 'text-ink-400 hover:text-ink-600'}`} title="Nuit"><IconMoon className="w-4 h-4" /></button>
-                    </div>
                     <button
                         onClick={() => { setSoundEnabled(!soundEnabled); soundManager.playNotification(); }}
                         className={`p-2 rounded-lg transition-all ${soundEnabled ? 'text-accent bg-accent/10' : 'text-ink-400 hover:text-ink-600 hover:bg-ink-100'}`}
@@ -1680,7 +2206,6 @@ Date: ${dateStr}.
                     >
                         {soundEnabled ? <IconVolume2 className="w-5 h-5" /> : <IconVolumeX className="w-5 h-5" />}
                     </button>
-                    <button onClick={() => setShowSupport(true)} className="text-ink-400 hover:text-accent transition-colors p-2 hover:bg-accent/10 rounded-lg" title="Support & Aide"><IconHelp className="w-6 h-6" /></button>
                     <button onClick={() => setShowProfileModal(true)} className="hidden md:flex items-center gap-3 cursor-pointer group hover:bg-ink-50 px-3 py-2 rounded-xl transition-colors">
                         <div className="flex flex-col items-end">
                             <span className="text-base font-semibold leading-none group-hover:text-accent transition-colors">{userProfile?.name}</span>
@@ -1700,6 +2225,7 @@ Date: ${dateStr}.
                 <button onClick={() => setCurrentView('dashboard')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'dashboard' ? 'text-accent' : ''}`}><IconTarget className="w-5 h-5" />Tableau</button>
                 <button onClick={() => setCurrentView('boutique')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'boutique' ? 'text-accent' : ''}`}><IconSearch className="w-5 h-5" />Boutique</button>
                 <button onClick={() => setCurrentView('universe')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'universe' ? 'text-accent' : ''}`}><IconMap className="w-5 h-5" />Univers</button>
+                <button onClick={() => setCurrentView('address-book')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'address-book' ? 'text-accent' : ''}`}><IconUsers className="w-5 h-5" />Acteurs</button>
                 <button onClick={() => setCurrentView('manuscript')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'manuscript' ? 'text-accent' : ''}`}><IconBookOpen className="w-5 h-5" />Livre</button>
                 <button onClick={() => setCurrentView('guest_view')} className={`flex flex-col items-center gap-1 p-2 ${currentView === 'guest_view' ? 'text-accent' : ''}`}><IconUsers className="w-5 h-5" />Témoins</button>
             </div>
@@ -1737,28 +2263,128 @@ Date: ${dateStr}.
                         canUndo={undoStack.length > 0}
                         onQuestionClick={async (id, index) => { await handleQuestionClick(id, index); }}
                         onInsertDivider={async (label) => {
+                            // If no label is provided, this is a "New Memory" request
                             if (!label) {
-                                await handleNewSequence();
+                                // Check if there's user content in the current session
+                                const hasUserContent = state.messages.filter(m => m.role === 'user' && !m.isDivider).length > 0;
+
+                                if (hasUserContent) {
+                                    // Show transition modal to let user choose what to do
+                                    setShowTransitionModal(true);
+                                } else {
+                                    // No content - start fresh session
+                                    // 1. Insert divider to DB to mark end of previous session
+                                    const { error: dividerError } = await supabase.from('messages').insert({
+                                        user_id: session.user.id,
+                                        role: 'assistant',
+                                        content: { isDivider: true } // Store divider flag in content
+                                    });
+                                    if (dividerError) {
+                                        logger.error('Error inserting divider (nouveau souvenir):', dividerError);
+                                        showToast("Erreur lors de la création du séparateur", 'error');
+                                        return; // Stop if divider insertion fails
+                                    }
+
+                                    // 2. Reset ALL session state - THIS IS CRITICAL
+                                    setWorkspaceId(null);
+                                    setDraftContent('');
+                                    setDraftPhotos([]);
+                                    setState(prev => ({
+                                        ...prev,
+                                        messages: [], // Clear messages completely
+                                        aggregatedData: {
+                                            dates: new Set<string>(),
+                                            locations: new Set<string>(),
+                                            characters: new Set<string>(),
+                                            tags: new Set<string>()
+                                        }
+                                    }));
+
+                                    // 3. Generate fresh kickstarter
+                                    try {
+                                        const { data: freshIdeas } = await supabase.from('ideas').select('*').order('created_at', { ascending: false }).limit(5);
+                                        const gaps = await detectGaps(session?.user?.id || '', userProfile?.birthDate);
+                                        const kickstarterResponse = await generateKickstarter(userProfile, freshIdeas || [], gaps);
+
+                                        const welcomeMsg: ChatMessage = {
+                                            id: uuidv4(),
+                                            role: 'assistant',
+                                            timestamp: Date.now(),
+                                            content: kickstarterResponse
+                                        };
+
+                                        const { error: msgError } = await supabase.from('messages').insert({
+                                            user_id: session.user.id,
+                                            role: 'assistant',
+                                            content: welcomeMsg.content
+                                        });
+                                        if (msgError) {
+                                            logger.error('Error inserting kickstarter (nouveau souvenir):', msgError);
+                                            showToast("Erreur lors de la sauvegarde du message", 'error');
+                                        }
+
+                                        setState(prev => ({ ...prev, messages: [welcomeMsg] }));
+                                    } catch (error) {
+                                        logger.error('Error generating kickstarter:', error);
+                                        // Fallback welcome message
+                                        setState(prev => ({
+                                            ...prev,
+                                            messages: [{
+                                                id: uuidv4(),
+                                                role: 'assistant',
+                                                timestamp: Date.now(),
+                                                content: {
+                                                    narrative: "",
+                                                    conversation: "Bienvenue dans une nouvelle session. De quoi souhaitez-vous vous souvenir ?",
+                                                    data: null,
+                                                    suggestion: null,
+                                                    questions: []
+                                                }
+                                            }]
+                                        }));
+                                    }
+
+                                    // 🔒 CRITICAL: Prevent loadUserData from overwriting our fresh session
+                                    freshSessionStarted.current = true;
+                                    showToast("Nouveau souvenir prêt !", 'success');
+                                }
                             } else {
+                                // With label, insert divider directly (used by idea chest)
                                 const dividerMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: label || '', timestamp: Date.now(), isDivider: true };
-                                await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: { text: label || '' }, isDivider: true });
+                                await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: { text: label || '' }, is_divider: true });
                                 setState(prev => ({ ...prev, messages: [...prev.messages, dividerMsg] }));
                             }
                         }}
                         onSave={handleInsertDraft}
+                        onSaveAsDraft={() => {
+                            setTransitionMode('germer');
+                            setShowValidationModal(true);
+                        }}
                         onOpenPhotoCatalyst={() => setShowPhotoCatalyst(true)}
                         onStartRecording={handleStartRecording}
                         onStopRecording={handleStopRecording}
                         isRecording={isRecording}
                         voiceTranscript={input}
+                        onRegenerate={handleRegenerate}
+                        isRegenerating={isRegenerating}
                     />
                 )}
                 {currentView === 'dashboard' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><PlumeDashboard userId={session.user.id} userProfile={userProfile} messages={state.messages} onGapClick={handleGapAction} /></div>)}
-                {currentView === 'boutique' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><BoutiqueSouvenirs userId={session.user.id} onSouvenirSelect={handleSouvenirSelect} /></div>)}
+                {currentView === 'boutique' && session?.user && (
+                    <div className="w-full h-full pb-16 md:pb-0">
+                        <BoutiqueSouvenirs
+                            userId={session.user.id}
+                            onSouvenirSelect={handleSouvenirSelect}
+                            onShowContributions={() => setShowContributionsPanel(true)}
+                            pendingContributionsCount={pendingContributionsCount}
+                        />
+                    </div>
+                )}
                 {currentView === 'universe' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><LifeUniverse userId={session.user.id} userProfile={userProfile} messages={state.messages} /></div>)}
+                {currentView === 'address-book' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><AddressBook userId={session.user.id} /></div>)}
                 {currentView === 'manuscript' && session?.user && (<div className="w-full h-full pb-16 md:pb-0"><BookView userId={session.user.id} /></div>)}
                 {currentView === 'gallery' && (<div className="w-full h-full pb-16 md:pb-0"><SouvenirGallery characters={state.aggregatedData.characters} tags={state.aggregatedData.tags} photos={userProfile?.photos || []} /></div>)}
-                {currentView === 'digital-memory' && (
+                {IS_DEV_MODE && currentView === 'digital-memory' && (
                     <div className="w-full h-full pb-16 md:pb-0 overflow-y-auto bg-gradient-to-br from-slate-50 to-indigo-50/30 p-8">
                         <div className="max-w-7xl mx-auto">
                             <div className="mb-8">
@@ -1794,7 +2420,50 @@ Date: ${dateStr}.
                 )}
                 {currentView === 'guest_prototype' && (<div className="w-full h-full overflow-y-auto"><GuestMemoryCard /></div>)}
                 {currentView === 'guest_view' && (<div className="w-full h-full overflow-y-auto"><GuestView /></div>)}
+                {currentView === 'guest_landing' && guestToken && (
+                    <div className="w-full h-full overflow-y-auto bg-slate-50">
+                        {/* @ts-ignore - Prop 'token' will be added to GuestLandingPage */}
+                        <GuestLandingPage token={guestToken} onComplete={() => { setCurrentView('landing'); setGuestToken(null); }} />
+                    </div>
+                )}
             </div>
+
+            {/* Witness Contributions Review Panel */}
+            {session?.user && (
+                <ContributionReviewPanel
+                    userId={session.user.id}
+                    isOpen={showContributionsPanel}
+                    onClose={() => setShowContributionsPanel(false)}
+                    onContributionIntegrated={(chapterId, newContent) => {
+                        // Decrement notification count
+                        setPendingContributionsCount(prev => Math.max(0, prev - 1));
+                        // Optionally refresh data or show toast
+                        showToast('Témoignage intégré avec succès !', 'success');
+                    }}
+                />
+            )}
+
+            {/* Help Button & Onboarding Tour */}
+            {session && !currentView.includes('guest') && (
+                <>
+                    <HelpButton
+                        onStartTour={() => {
+                            setTourSection('all');
+                            setShowOnboardingTour(true);
+                        }}
+                        onOpenSection={(sectionId) => {
+                            setTourSection(sectionId as any);
+                            setShowOnboardingTour(true);
+                        }}
+                    />
+                    <OnboardingTour
+                        run={showOnboardingTour}
+                        onFinish={() => setShowOnboardingTour(false)}
+                        section={tourSection}
+                    />
+                </>
+            )}
+
             <style>{`
         .w-92 { width: 23rem; }
         .w-83 { width: 20.75rem; }
@@ -1815,3 +2484,4 @@ Date: ${dateStr}.
 };
 
 export default App;
+

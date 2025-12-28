@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Mic, Image as ImageIcon, Send, Sparkles, MapPin, Calendar, Info, X, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mic, Image as ImageIcon, Send, Sparkles, MapPin, Calendar, Info, X, Check, ChevronRight, ArrowLeft, Feather } from 'lucide-react';
 import { IconFeather } from './Icons';
 import { supabase } from '../services/supabaseClient';
+import { generateWitnessQuestions, reformulateWitnessNarrative, saveWitnessContribution, WitnessResponse } from '../services/witnessService';
+import { logger } from '../utils/logger';
 
 interface GuestMemoryCardProps {
     souvenirId?: string;
@@ -11,10 +13,12 @@ interface GuestMemoryCardProps {
         location: string;
         date: string;
         tags: string[];
+        excerpt?: string;
     };
     authorQuestion?: string;
     isModal?: boolean;
-    onComplete?: () => void;
+    onComplete?: (text?: string) => void;
+    inviteToken?: string;
 }
 
 const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
@@ -24,62 +28,173 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
     memoryContext = {
         location: "Saint-Malo, France",
         date: "Août 1998",
-        tags: ["Plage", "Cerf-volant", "Orage"]
+        tags: ["Plage", "Cerf-volant", "Orage"],
+        excerpt: ""
     },
     authorQuestion = "Je me souviens qu'on a perdu les clés de la voiture... mais qui est allé chercher de l'aide au village ?",
     isModal = false,
-    onComplete
+    onComplete,
+    inviteToken
 }) => {
-    const [step, setStep] = useState<'contribute' | 'revealed'>('contribute');
-    const [text, setText] = useState('');
-    const [isRecording, setIsRecording] = useState(false);
+    // Flow states
+    const [step, setStep] = useState<'welcome' | 'interview' | 'recap' | 'revealed'>('welcome');
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+    // Interview data
+    const [questions, setQuestions] = useState<string[]>([]);
+    const [responses, setResponses] = useState<WitnessResponse[]>([]);
+    const [currentAnswer, setCurrentAnswer] = useState('');
+    const [guestName, setGuestName] = useState('');
+
+    // UI states
+    const [isLoading, setIsLoading] = useState(false);
+    const [reformulatedText, setReformulatedText] = useState('');
     const [showInfo, setShowInfo] = useState(false);
-    const [photo, setPhoto] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = async () => {
-        if (!text && !photo && !isRecording) return;
-        setIsSubmitting(true);
+    // Load questions when starting interview
+    useEffect(() => {
+        if (step === 'interview' && questions.length === 0) {
+            loadQuestions();
+        }
+    }, [step]);
 
-        if (souvenirId) {
-            try {
-                const { error } = await supabase.from('guest_contributions').insert({
-                    chapter_id: souvenirId,
-                    guest_name: 'Ami de ' + authorName, // Placeholder
-                    content: text || (isRecording ? "[Enregistrement Audio]" : "[Photo Partagée]"),
-                    contribution_type: isRecording ? 'audio' : photo ? 'photo' : 'text',
-                    status: 'pending'
+    const loadQuestions = async () => {
+        setIsLoading(true);
+        try {
+            const generatedQuestions = await generateWitnessQuestions({
+                title: memoryTitle,
+                excerpt: memoryContext.excerpt || '',
+                location: memoryContext.location,
+                date: memoryContext.date,
+                tags: memoryContext.tags,
+                authorQuestion
+            });
+            setQuestions(generatedQuestions);
+        } catch (error) {
+            logger.error('Error loading questions:', error);
+            // Fallback questions
+            setQuestions([
+                "Fermez les yeux un instant... Que voyez-vous de ce moment ? Quel temps faisait-il ?",
+                "Que s'est-il passé exactement selon vos souvenirs ?",
+                authorQuestion
+            ]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleStartInterview = () => {
+        if (!guestName.trim()) return;
+        setStep('interview');
+    };
+
+    const handleNextQuestion = () => {
+        if (!currentAnswer.trim()) return;
+
+        // Save current response
+        const newResponse: WitnessResponse = {
+            question: questions[currentQuestionIndex],
+            answer: currentAnswer,
+            step: currentQuestionIndex + 1
+        };
+        setResponses([...responses, newResponse]);
+        setCurrentAnswer('');
+
+        // Move to next question or recap
+        if (currentQuestionIndex < questions.length - 1) {
+            setCurrentQuestionIndex(currentQuestionIndex + 1);
+        } else {
+            generateRecap([...responses, newResponse]);
+        }
+    };
+
+    const handlePreviousQuestion = () => {
+        if (currentQuestionIndex > 0) {
+            setCurrentQuestionIndex(currentQuestionIndex - 1);
+            setCurrentAnswer(responses[currentQuestionIndex - 1]?.answer || '');
+            setResponses(responses.slice(0, -1));
+        }
+    };
+
+    const generateRecap = async (allResponses: WitnessResponse[]) => {
+        setIsLoading(true);
+        try {
+            const narrative = await reformulateWitnessNarrative(
+                allResponses,
+                guestName,
+                { title: memoryTitle, authorName }
+            );
+            setReformulatedText(narrative);
+            setStep('recap');
+        } catch (error) {
+            logger.error('Error generating recap:', error);
+            setReformulatedText(allResponses.map(r => r.answer).join('\n\n'));
+            setStep('recap');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleSubmit = async () => {
+        setIsSubmitting(true);
+        try {
+            if (inviteToken) {
+                // Determine user_id from token logic or pass it?
+                // GuestLandingPage fetched the invite. We actually need the INVITE row to link or just update it?
+                // Use RPC function to bypass RLS for public guest submission
+                const { error } = await supabase.rpc('submit_guest_answer', {
+                    _token: inviteToken,
+                    _answer: reformulatedText
                 });
 
-                if (error) throw error;
-            } catch (error) {
-                console.error("Error saving contribution:", error);
-                // In a real app, show error toast
+                if (error) {
+                    console.error('[DEBUG] RPC submit_guest_answer failed:', error);
+                    throw error;
+                }
+            } else if (souvenirId) {
+                await saveWitnessContribution(
+                    souvenirId,
+                    guestName,
+                    '', // relation not captured in this flow
+                    reformulatedText,
+                    responses
+                );
             }
-        }
-
-        // Simulate submission delay for UX
-        setTimeout(() => {
             setStep('revealed');
-            setIsSubmitting(false);
             if (onComplete) {
-                setTimeout(onComplete, 2000); // Wait a bit before closing
+                setTimeout(() => onComplete(reformulatedText), 3000);
             }
-        }, 1000);
+        } catch (error) {
+            logger.error('Error saving contribution:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-    const toggleRecording = () => {
-        setIsRecording(!isRecording);
+    const handleEditRecap = () => {
+        // Allow editing the reformulated text
     };
+
+    // PLUME avatar animation
+    const PlumeAvatar = ({ speaking = false }: { speaking?: boolean }) => (
+        <div className={`relative ${speaking ? 'animate-pulse' : ''}`}>
+            <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
+                <IconFeather className="w-6 h-6 text-white" />
+            </div>
+            {speaking && (
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white animate-ping" />
+            )}
+        </div>
+    );
 
     return (
         <div className={`${isModal ? 'h-full bg-[#fcfbf9] rounded-3xl' : 'min-h-screen bg-[#fcfbf9]'} font-sans text-slate-800 flex flex-col relative overflow-hidden transition-all`}>
-
-            {/* Background Texture/Gradient - Subtle for SaaS feel */}
+            {/* Background */}
             <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] opacity-50 pointer-events-none" />
             <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-amber-50/80 to-transparent pointer-events-none" />
 
-            {/* Header: Branding & Context */}
+            {/* Header */}
             <header className="relative z-10 px-6 py-6 flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <div className="bg-amber-600 p-1.5 rounded-lg shadow-sm">
@@ -98,27 +213,43 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
 
             <main className="flex-1 relative z-10 flex flex-col items-center px-4 pb-8 max-w-2xl mx-auto w-full">
 
-                {/* Author Profile & Welcome */}
-                <div className="text-center mb-8 animate-fadeIn">
-                    <div className="relative inline-block mb-3">
-                        <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gradient-to-tr from-amber-100 to-orange-100 flex items-center justify-center text-2xl font-serif text-amber-700">
-                            {authorName.charAt(0)}
+                {/* Progress indicator for interview */}
+                {step === 'interview' && questions.length > 0 && (
+                    <div className="w-full mb-6">
+                        <div className="flex items-center justify-between text-sm text-slate-500 mb-2">
+                            <span>Question {currentQuestionIndex + 1}/{questions.length}</span>
+                            <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
                         </div>
-                        <div className="absolute bottom-0 right-0 bg-green-500 w-5 h-5 rounded-full border-2 border-white"></div>
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                                style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
+                            />
+                        </div>
                     </div>
-                    <h1 className="text-2xl font-serif font-bold text-slate-900 mb-1">
-                        Aidez <span className="text-amber-600">{authorName}</span> à écrire sa vie
-                    </h1>
-                    <p className="text-slate-500 text-sm max-w-xs mx-auto">
-                        Il manque une pièce au puzzle. Votre mémoire est précieuse.
-                    </p>
-                </div>
+                )}
 
-                {step === 'contribute' && (
+                {/* WELCOME STEP */}
+                {step === 'welcome' && (
                     <div className="w-full space-y-6 animate-fadeIn">
+                        {/* Author profile */}
+                        <div className="text-center mb-6">
+                            <div className="relative inline-block mb-3">
+                                <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gradient-to-tr from-amber-100 to-orange-100 flex items-center justify-center text-2xl font-serif text-amber-700">
+                                    {authorName.charAt(0)}
+                                </div>
+                                <div className="absolute bottom-0 right-0 bg-green-500 w-5 h-5 rounded-full border-2 border-white"></div>
+                            </div>
+                            <h1 className="text-2xl font-serif font-bold text-slate-900 mb-1">
+                                Aidez <span className="text-amber-600">{authorName}</span> à écrire sa vie
+                            </h1>
+                            <p className="text-slate-500 text-sm max-w-xs mx-auto">
+                                Il manque une pièce au puzzle. Votre mémoire est précieuse.
+                            </p>
+                        </div>
 
-                        {/* Memory Context Card */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 relative overflow-hidden group">
+                        {/* Memory context card */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
 
                             <div className="flex flex-wrap gap-2 mb-4">
@@ -141,86 +272,179 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
                             </div>
                         </div>
 
-                        {/* Unified Contribution Area */}
-                        <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden transition-all focus-within:ring-2 focus-within:ring-amber-500/20">
-
-                            {/* Text Input */}
-                            <textarea
-                                className="w-full p-5 text-lg text-slate-800 placeholder-slate-300 resize-none outline-none min-h-[120px] font-sans bg-transparent"
-                                placeholder="Je me souviens que..."
-                                value={text}
-                                onChange={(e) => setText(e.target.value)}
+                        {/* Guest name input */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                                Comment vous appelez-vous ?
+                            </label>
+                            <input
+                                type="text"
+                                value={guestName}
+                                onChange={(e) => setGuestName(e.target.value)}
+                                placeholder="Votre prénom"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all text-lg"
                             />
-
-                            {/* Media Preview Area */}
-                            {(isRecording || photo) && (
-                                <div className="px-5 pb-4 flex gap-3 overflow-x-auto">
-                                    {isRecording && (
-                                        <div className="flex items-center gap-3 bg-red-50 text-red-600 px-4 py-2 rounded-full border border-red-100 animate-pulse">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                                            <span className="text-sm font-medium">Enregistrement...</span>
-                                            <button onClick={toggleRecording} className="ml-2 hover:bg-red-100 rounded-full p-1"><X size={14} /></button>
-                                        </div>
-                                    )}
-                                    {photo && (
-                                        <div className="relative group">
-                                            <div className="w-16 h-16 bg-slate-100 rounded-lg border border-slate-200 flex items-center justify-center text-xs text-slate-400">Photo</div>
-                                            <button onClick={() => setPhoto(null)} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-0.5"><X size={12} /></button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Toolbar & Action */}
-                            <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={toggleRecording}
-                                        className={`p-2.5 rounded-xl transition-all ${isRecording ? 'bg-red-100 text-red-600' : 'hover:bg-white hover:shadow-sm text-slate-500 hover:text-amber-600'}`}
-                                        title="Enregistrer un vocal"
-                                    >
-                                        <Mic size={20} />
-                                    </button>
-                                    <button
-                                        onClick={() => setPhoto('placeholder')}
-                                        className="p-2.5 rounded-xl hover:bg-white hover:shadow-sm text-slate-500 hover:text-amber-600 transition-all"
-                                        title="Ajouter une photo"
-                                    >
-                                        <ImageIcon size={20} />
-                                    </button>
-                                </div>
-
-                                <button
-                                    onClick={handleSubmit}
-                                    disabled={!text && !photo && !isRecording}
-                                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium transition-all ${text || photo || isRecording
-                                        ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 hover:bg-amber-700 transform hover:-translate-y-0.5'
-                                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <span>Envoyer</span>
-                                    <Send size={16} />
-                                </button>
-                            </div>
                         </div>
 
-                        <p className="text-center text-xs text-slate-400">
-                            Votre contribution est privée et sécurisée par PLUME.
-                        </p>
+                        {/* Start button */}
+                        <button
+                            onClick={handleStartInterview}
+                            disabled={!guestName.trim()}
+                            className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-all ${guestName.trim()
+                                ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-lg shadow-amber-600/20'
+                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                }`}
+                        >
+                            Commencer <ChevronRight size={20} />
+                        </button>
                     </div>
                 )}
 
-                {step === 'revealed' && (
-                    <div className="w-full animate-fadeIn space-y-6">
-                        <div className="bg-green-50 border border-green-100 rounded-2xl p-6 text-center">
-                            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3 text-green-600">
-                                <Check size={24} />
+                {/* INTERVIEW STEP */}
+                {step === 'interview' && (
+                    <div className="w-full space-y-6 animate-fadeIn">
+                        {isLoading ? (
+                            <div className="flex flex-col items-center justify-center py-12">
+                                <PlumeAvatar speaking />
+                                <p className="mt-4 text-slate-600">PLUME prépare vos questions...</p>
                             </div>
-                            <h3 className="text-lg font-bold text-green-800 mb-1">Merci pour votre contribution !</h3>
-                            <p className="text-green-700/80 text-sm">Stéphane sera ravi de redécouvrir ce moment.</p>
+                        ) : (
+                            <>
+                                {/* PLUME question bubble */}
+                                <div className="flex gap-4">
+                                    <PlumeAvatar speaking />
+                                    <div className="flex-1 bg-white rounded-2xl rounded-tl-none shadow-sm border border-slate-200 p-5">
+                                        <p className="text-slate-800 text-lg leading-relaxed">
+                                            {questions[currentQuestionIndex]}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Answer input */}
+                                <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
+                                    <textarea
+                                        value={currentAnswer}
+                                        onChange={(e) => setCurrentAnswer(e.target.value)}
+                                        placeholder="Je me souviens que..."
+                                        rows={4}
+                                        className="w-full p-5 text-lg text-slate-800 placeholder-slate-300 resize-none outline-none font-sans"
+                                        autoFocus
+                                    />
+
+                                    <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                                        <button
+                                            onClick={handlePreviousQuestion}
+                                            disabled={currentQuestionIndex === 0}
+                                            className={`flex items-center gap-1 px-4 py-2 rounded-lg transition-all ${currentQuestionIndex === 0
+                                                ? 'text-slate-300 cursor-not-allowed'
+                                                : 'text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                        >
+                                            <ArrowLeft size={16} /> Précédent
+                                        </button>
+
+                                        <button
+                                            onClick={handleNextQuestion}
+                                            disabled={!currentAnswer.trim()}
+                                            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium transition-all ${currentAnswer.trim()
+                                                ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 hover:bg-amber-700'
+                                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                                }`}
+                                        >
+                                            {currentQuestionIndex < questions.length - 1 ? 'Suivant' : 'Terminer'}
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* RECAP STEP */}
+                {step === 'recap' && (
+                    <div className="w-full space-y-6 animate-fadeIn">
+                        {isLoading ? (
+                            <div className="flex flex-col items-center justify-center py-12">
+                                <PlumeAvatar speaking />
+                                <p className="mt-4 text-slate-600">PLUME reformule votre témoignage...</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="text-center mb-4">
+                                    <h2 className="text-2xl font-serif font-bold text-slate-900">
+                                        Votre témoignage
+                                    </h2>
+                                    <p className="text-slate-500 text-sm">Vérifiez et confirmez avant envoi</p>
+                                </div>
+
+                                {/* Reformulated contribution */}
+                                <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 relative">
+                                    <div className="absolute top-4 right-4 flex items-center gap-1 text-amber-600">
+                                        <Sparkles size={14} />
+                                        <span className="text-xs font-medium">Reformulé par PLUME</span>
+                                    </div>
+
+                                    <textarea
+                                        value={reformulatedText}
+                                        onChange={(e) => setReformulatedText(e.target.value)}
+                                        rows={8}
+                                        className="w-full text-slate-800 leading-relaxed resize-none outline-none font-serif text-lg"
+                                    />
+
+                                    <div className="mt-4 pt-4 border-t border-slate-100 text-right text-sm text-slate-500 italic">
+                                        — {guestName}
+                                    </div>
+                                </div>
+
+                                {/* Action buttons */}
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setStep('interview');
+                                            setCurrentQuestionIndex(0);
+                                            setResponses([]);
+                                            setCurrentAnswer('');
+                                        }}
+                                        className="flex-1 py-3 border border-slate-200 rounded-xl text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                                    >
+                                        Recommencer
+                                    </button>
+                                    <button
+                                        onClick={handleSubmit}
+                                        disabled={isSubmitting}
+                                        className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-600/20 flex items-center justify-center gap-2"
+                                    >
+                                        {isSubmitting ? (
+                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                                        ) : (
+                                            <>
+                                                <Send size={18} />
+                                                Envoyer à {authorName}
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* REVEALED STEP - Thank you & teaser */}
+                {step === 'revealed' && (
+                    <div className="w-full space-y-6 animate-fadeIn">
+                        {/* Success message */}
+                        <div className="bg-green-50 border border-green-100 rounded-2xl p-6 text-center">
+                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Check size={32} className="text-green-600" />
+                            </div>
+                            <h3 className="text-xl font-bold text-green-800 mb-1">Merci {guestName} !</h3>
+                            <p className="text-green-700/80">
+                                {authorName} sera ravi de redécouvrir ce moment grâce à vous.
+                            </p>
                         </div>
 
-                        {/* The Reveal */}
+                        {/* Book excerpt teaser */}
                         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 relative overflow-hidden group cursor-pointer">
                             <div className="absolute top-0 right-0 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-1 rounded-bl-lg uppercase tracking-wider">
                                 Extrait du livre
@@ -228,7 +452,7 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
 
                             <div className="flex items-center gap-2 mb-4 opacity-50">
                                 <IconFeather className="w-4 h-4 text-slate-400" />
-                                <span className="text-xs font-serif text-slate-400">Écrit par Stéphane avec PLUME</span>
+                                <span className="text-xs font-serif text-slate-400">Écrit par {authorName} avec PLUME</span>
                             </div>
 
                             <p className="font-serif text-lg text-slate-800 leading-relaxed blur-sm group-hover:blur-none transition-all duration-700">
@@ -242,11 +466,12 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
                             </div>
                         </div>
 
+                        {/* CTA */}
                         <div className="bg-slate-900 rounded-2xl p-6 text-center text-white relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 rounded-full blur-3xl -mr-10 -mt-10" />
                             <h3 className="font-serif text-xl font-bold mb-2 relative z-10">Et vous ?</h3>
                             <p className="text-slate-300 text-sm mb-6 relative z-10">
-                                Vous avez aussi des souvenirs qui méritent d'être gravés ? Découvrez la magie de l'écriture assistée.
+                                Vous avez aussi des souvenirs qui méritent d'être gravés ?
                             </p>
                             <button className="w-full py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-amber-50 transition-colors relative z-10">
                                 Commencer mon livre gratuitement
@@ -256,7 +481,7 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
                 )}
             </main>
 
-            {/* Info Modal / Overlay */}
+            {/* Info Modal */}
             {showInfo && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn" onClick={() => setShowInfo(false)}>
                     <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
@@ -279,7 +504,7 @@ const GuestMemoryCard: React.FC<GuestMemoryCardProps> = ({
                         <div className="bg-amber-50 rounded-xl p-4 mb-4">
                             <h4 className="font-bold text-amber-800 text-sm mb-1">Pourquoi votre aide compte ?</h4>
                             <p className="text-amber-700/80 text-xs">
-                                La mémoire est collective. En partageant votre point de vue, vous enrichissez l'histoire de Stéphane avec des détails qu'il a peut-être oubliés.
+                                La mémoire est collective. En partageant votre point de vue, vous enrichissez l'histoire de {authorName} avec des détails qu'il a peut-être oubliés.
                             </p>
                         </div>
 

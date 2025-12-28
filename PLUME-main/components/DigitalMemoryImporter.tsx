@@ -161,7 +161,7 @@ export const DigitalMemoryImporter: React.FC<DigitalMemoryImporterProps> = ({ on
             }, 800);
 
         } catch (error) {
-            console.error('Erreur analyse profils:', error);
+            logger.error('Erreur analyse profils:', error);
             setUploadError(error instanceof Error ? error.message : 'Erreur lors de l\'analyse des profils');
             setIsScanning(false);
             setScanProgress(0);
@@ -414,3 +414,4 @@ export const DigitalMemoryImporter: React.FC<DigitalMemoryImporterProps> = ({ on
         </div>
     );
 };
+

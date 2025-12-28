@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { logger } from '../utils/logger';
 import { exportBookToPDF } from '../services/exportService';
 import { IconBook, IconCheck, IconX, IconSettings, IconCalendar, IconDownload, IconImage, IconPlus, IconEye, IconEdit, IconArrowRight, IconArrowLeft, IconChevronRight, IconChevronDown, IconZap } from './Icons';
 import { User, Photo, BookStructure } from '../types';
@@ -195,8 +196,8 @@ const KindleReader = ({
   const textColor = nightMode ? 'text-[#e8e6e3]' : 'text-[#2c2c2c]';
   const secondaryColor = nightMode ? 'text-[#a0a0a0]' : 'text-[#666666]';
 
-  console.log('KindleReader received:', chapters.length, 'chapters');
-  console.log('Current chapter:', currentChapter);
+  logger.debug('KindleReader received chapters', { count: chapters.length });
+  logger.debug('Current chapter', currentChapter);
 
 
   return (
@@ -509,7 +510,7 @@ const ManuscriptView: React.FC<ManuscriptViewProps> = ({ userProfile, showToast 
       showToast(`Structure "${structure.title}" appliquée !`, 'success');
 
     } catch (err) {
-      console.error('Error saving structure:', err);
+      logger.error('Error saving structure:', err);
       showToast("Erreur lors de la sauvegarde de la structure", "error");
     }
   };
