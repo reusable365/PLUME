@@ -5,6 +5,12 @@ import { logger } from '../utils/logger';
 import { generateBookStructure } from '../services/bookArchitectService';
 import { Souvenir, BookStructure, BookChapter, BookStructureMode } from '../types';
 import jsPDF from 'jspdf';
+import { AudioPlayer } from './AudioPlayer';
+import { ttsService } from '../services/ttsService';
+import { VoiceSelector } from './VoiceSelector';
+import { subscriptionService } from '../services/subscriptionService';
+import { useQuota } from '../hooks/useQuota';
+import { Volume2, X } from 'lucide-react';
 
 interface BookViewProps {
     userId: string;
@@ -24,6 +30,45 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+    // Audio State
+    const [audioSrc, setAudioSrc] = useState<string | null>(null);
+    const [activeAudioSouvenirId, setActiveAudioSouvenirId] = useState<string | null>(null);
+    const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const [showVoiceSelector, setShowVoiceSelector] = useState(false);
+    const [selectedVoiceId, setSelectedVoiceId] = useState<string>('fr-FR-Neural2-A');
+    const [availableVoices, setAvailableVoices] = useState<any[]>([]);
+
+    useEffect(() => {
+        ttsService.getVoices().then(setAvailableVoices);
+    }, []);
+
+    const handlePlayAudio = async (souvenirId: string, text: string) => {
+        if (activeAudioSouvenirId === souvenirId && audioSrc) {
+            return; // Already ready
+        }
+
+        setIsAudioLoading(true);
+        setActiveAudioSouvenirId(souvenirId);
+        try {
+            // Determine provider based on voice ID prefix or lookup
+            const voice = availableVoices.find(v => v.id === selectedVoiceId);
+            const provider = voice?.provider || 'google';
+
+            const url = await ttsService.generateAudio(text, {
+                voiceId: selectedVoiceId,
+                provider: provider,
+                emotion: 'neutral'
+            });
+            setAudioSrc(url);
+        } catch (error) {
+            logger.error('Audio gen failed', error);
+            alert("Erreur lors de la génération audio.");
+            setActiveAudioSouvenirId(null);
+        } finally {
+            setIsAudioLoading(false);
+        }
+    };
 
     // Drag & Drop state
     const [draggedSouvenirId, setDraggedSouvenirId] = useState<string | null>(null);
@@ -485,12 +530,29 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
 
                     yPos += 15; // Bottom spacing
 
-                    // Ornamental Separator
-                    if (!checkPageBreak(25)) {
-                        doc.setTextColor(150, 150, 150);
-                        doc.setFontSize(16);
-                        doc.text("❧", pageWidth / 2, yPos, { align: 'center' });
-                        yPos += 25;
+                    // Ornamental Separator - FLEURON DESIGN
+                    if (!checkPageBreak(35)) {
+                        const centerX = pageWidth / 2;
+
+                        doc.setDrawColor(180, 83, 9); // Amber
+                        doc.setLineWidth(0.5);
+
+                        // Draw a stylized separator
+                        // Center Diamond
+                        doc.line(centerX - 2, yPos, centerX, yPos - 2);
+                        doc.line(centerX, yPos - 2, centerX + 2, yPos);
+                        doc.line(centerX + 2, yPos, centerX, yPos + 2);
+                        doc.line(centerX, yPos + 2, centerX - 2, yPos);
+
+                        // Left Wing
+                        doc.line(centerX - 5, yPos, centerX - 25, yPos);
+                        doc.circle(centerX - 25, yPos, 0.5, 'F');
+
+                        // Right Wing
+                        doc.line(centerX + 5, yPos, centerX + 25, yPos);
+                        doc.circle(centerX + 25, yPos, 0.5, 'F');
+
+                        yPos += 35;
                     }
                 }
             }
@@ -723,11 +785,25 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                                             )}
                                         </div>
 
-                                        {/* Ornamental Separator */}
                                         <div className="flex justify-center items-center mt-12 gap-4">
                                             <div className="h-px w-16 bg-gradient-to-r from-transparent to-stone-300"></div>
                                             <span className="text-stone-400 text-2xl">❧</span>
                                             <div className="h-px w-16 bg-gradient-to-l from-transparent to-stone-300"></div>
+                                        </div>
+
+                                        {/* Audio Player Section */}
+                                        <div className="mt-8 flex justify-center">
+                                            {activeAudioSouvenirId === mem.id ? (
+                                                <AudioPlayer src={audioSrc} isLoading={isAudioLoading} title={mem.title} />
+                                            ) : (
+                                                <button
+                                                    onClick={() => handlePlayAudio(mem.id, textContent)}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-full text-stone-600 transition-colors text-sm font-medium"
+                                                >
+                                                    <Volume2 className="w-4 h-4" />
+                                                    Écouter ce souvenir
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 );

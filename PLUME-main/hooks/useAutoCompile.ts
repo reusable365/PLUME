@@ -6,7 +6,8 @@ import { logger } from '../utils/logger';
 export const useAutoCompile = (
     tone: Tone,
     length: Length,
-    fidelity: Fidelity
+    fidelity: Fidelity,
+    userId?: string
 ) => {
     const [compiledText, setCompiledText] = useState('');
     const [isCompiling, setIsCompiling] = useState(false);
@@ -43,7 +44,7 @@ export const useAutoCompile = (
                 content: m.role === 'user' ? (m.content as string) : (m.content as PlumeResponse).narrative
             }));
 
-            const response = await synthesizeNarrative(historySegment, tone, length, fidelity);
+            const response = await synthesizeNarrative(historySegment, tone, length, fidelity, userId);
             setCompiledText(response.narrative);
         } catch (error) {
             logger.error("Auto-compilation failed", error);

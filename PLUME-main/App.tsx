@@ -14,6 +14,10 @@ import SouvenirGallery from './components/SouvenirGallery';
 import ManuscriptView from './components/ManuscriptView';
 import LandingPage from './components/LandingPage';
 import ProfileModal from './components/ProfileModal';
+import { PlanBadge } from './components/PlanBadge';
+import { QuotaIndicator } from './components/QuotaIndicator';
+import { PricingModal } from './components/PricingModal';
+import { AddonsStore } from './components/AddonsStore';
 import PlumeDashboard from './components/PlumeDashboard';
 import PhotoCatalyst from './components/PhotoCatalyst';
 import BoutiqueSouvenirs from './components/BoutiqueSouvenirs';
@@ -241,6 +245,24 @@ const App: React.FC = () => {
 
     // Guest Token State
     const [guestToken, setGuestToken] = useState<string | null>(null);
+
+    // SaaS Modals
+    const [showPricingModal, setShowPricingModal] = useState(false);
+    const [showAddonsStore, setShowAddonsStore] = useState(false);
+
+    // Quota Error Handler
+    const handleQuotaError = (error: any) => {
+        const msg = error?.message || '';
+        if (msg.startsWith('QUOTA_EXCEEDED')) {
+            const [_, metric, limit, used] = msg.split(':');
+            if (metric === 'ai_calls') {
+                setShowAddonsStore(true);
+                showToast("Quota épuisé. Rechargez pour continuer.", 'error');
+            }
+            return true;
+        }
+        return false;
+    };
 
     // FIX UX MOBILE: Gérer le viewport dynamique pour le clavier virtuel
     console.log('[DEBUG] App RENDER. View:', currentView, 'Session:', !!session, 'Token:', guestToken);
@@ -736,6 +758,7 @@ const App: React.FC = () => {
             });
 
         } catch (error) {
+            if (handleQuotaError(error)) { setIsLoading(false); return; }
             logger.error(error);
             showToast("Erreur Gemini: " + (error as Error).message, 'error');
             // FIX: Do NOT put error text in 'narrative', otherwise it gets auto-compiled into the book!
@@ -1126,7 +1149,7 @@ const App: React.FC = () => {
         setIsLoading(true);
         try {
             const historySegment = messagesToSynthesize.map(m => ({ role: m.role, content: m.role === 'user' ? (m.content as string) : (m.content as PlumeResponse).narrative }));
-            const response = await synthesizeNarrative(historySegment, tone, length, fidelity);
+            const response = await synthesizeNarrative(historySegment, tone, length, fidelity, session?.user?.id);
             const aiMsg: ChatMessage = { id: uuidv4(), role: 'assistant', content: response, timestamp: Date.now() };
             await supabase.from('messages').insert({ user_id: session.user.id, role: 'assistant', content: response });
             const updatedMessages = state.messages.map(m => {
@@ -1561,6 +1584,7 @@ Sois bref et professionnel.`;
                 showToast("Mode édition activé", 'success');
 
             } catch (err) {
+                if (handleQuotaError(err)) { setIsLoading(false); return; }
                 logger.error("Error starting edit session:", err);
                 // Fallback UI
                 setState(prev => ({
@@ -1906,6 +1930,7 @@ Date: ${dateStr}.
 
                     setState(prev => ({ ...prev, messages: [...prev.messages, aiMsg] }));
                 } catch (err) {
+                    if (handleQuotaError(err)) return;
                     logger.error("Error generating welcome:", err);
                 } finally {
                     setIsLoading(false);
@@ -1989,7 +2014,11 @@ Date: ${dateStr}.
             {showPhotoCatalyst && session?.user && (
                 <PhotoCatalyst
                     userId={session.user.id}
-                    userContext={{ firstName: userProfile?.firstName, birthDate: userProfile?.birthDate }}
+                    userContext={{
+                        firstName: userProfile?.firstName,
+                        birthDate: userProfile?.birthDate
+                    }}
+                    currentDraft={draftContent} // SMART TAGGING: Pass draft content for suggestions
                     onComplete={handlePhotoCatalystComplete}
                     onClose={() => setShowPhotoCatalyst(false)}
                 />
@@ -2199,6 +2228,21 @@ Date: ${dateStr}.
                     <button onClick={() => setCurrentView('guest_view')} className={`nav-btn ${currentView === 'guest_view' ? 'active' : ''}`}><IconUsers className="w-5 h-5" />Appel à Témoins</button>
                 </nav>
                 <div className="flex items-center gap-6">
+                    {/* SaaS Indicators */}
+                    {session?.user && (
+                        <div className="hidden lg:flex items-center gap-4 mr-2">
+                            <PlanBadge userId={session.user.id} onClick={() => setShowPricingModal(true)} />
+                            <QuotaIndicator userId={session.user.id} metric="ai_calls" label="IA" compact onClick={() => setShowAddonsStore(true)} />
+                        </div>
+                    )}
+
+                    {/* SaaS Modals */}
+                    {session?.user && (
+                        <>
+                            <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} userId={session.user.id} />
+                            <AddonsStore isOpen={showAddonsStore} onClose={() => setShowAddonsStore(false)} userId={session.user.id} />
+                        </>
+                    )}
                     <button
                         onClick={() => { setSoundEnabled(!soundEnabled); soundManager.playNotification(); }}
                         className={`p-2 rounded-lg transition-all ${soundEnabled ? 'text-accent bg-accent/10' : 'text-ink-400 hover:text-ink-600 hover:bg-ink-100'}`}

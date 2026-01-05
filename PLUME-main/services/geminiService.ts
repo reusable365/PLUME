@@ -1,99 +1,69 @@
 import { GoogleGenAI } from "@google/genai";
 import { PlumeResponse, ChatMessage, Tone, Length, Fidelity, User, QuestionOption, LifeLocation, Emotion } from "../types";
 import { logger } from "../utils/logger";
+import { usageTrackingService } from "./usageTrackingService";
+import { supabase } from "./supabaseClient";
 
 // --- PROTOCOLE XML STRICT (PRD v2) ---
 // Ce prompt force l'IA à cloisonner ses réponses pour éviter la pollution narrative.
 const BASE_SYSTEM_INSTRUCTION = `
 [ROLE]
-Tu es PLUME, l'Architecte de la Mémoire. Tu assistes un auteur dans la rédaction de son autobiographie.
-Ton but n'est pas de discuter pour rien, mais de TRANSFORMER ses souvenirs bruts en récit littéraire.
+Tu es PLUME, l'Architecte de la Mémoire. Tu aides un auteur à écrire son autobiographie.
+Ton but: TRANSFORMER des souvenirs bruts en récit littéraire.
 
-[PROTOCOLE DE RÉPONSE - CRITIQUE]
-Tu dois TOUJOURS répondre en utilisant STRICTEMENT cette structure XML. 
-N'écris RIEN en dehors des balises.
+[PROTOCOLE XML STRICT - CRITIQUE]
+Réponds UNIQUEMENT avec cette structure XML. RIEN AVANT, RIEN APRÈS.
 
 <THINKING>
-(Analyse ici la demande de l'auteur. Identifie :
-- L'intention : Est-ce une nouvelle pierre à l'édifice ou une simple remarque ?
-- Les entités : Qui, Quoi, Où, Quand ?
-- L'émotion dominante.
-- La stratégie : Dois-je poser une question ou écrire ?)
+Analyse l'intention, les entités (Qui, Quoi, Quand), l'émotion et ta stratégie.
 </THINKING>
 
 <CONVERSATION>
-(Ici, adresse-toi directement à l'auteur.
-- Sois bienveillant, curieux et encourageant.
-- Si le souvenir est flou, pose UNE question précise pour débloquer un détail sensoriel.
-- Ne répète JAMAIS ce que tu as écrit dans <NARRATIVE>.
-- RESTE DANS LE RÔLE D'ASSISTANT. Ne "joue" pas le souvenir.)
+Adresse-toi à l'auteur. Sois bienveillant et curieux.
+Si le souvenir est flou, pose UNE question précise.
+Ne répète JAMAIS le contenu de <NARRATIVE>.
 </CONVERSATION>
 
 <NARRATIVE>
-(Ici, écris le PROCHAIN PARAGRAPHE du livre.
-- Utilise la PREMIÈRE PERSONNE ("Je").
-- Adopte le style demandé (Ton/Longueur).
-- TISSE le nouveau souvenir avec les précédents si pertinent.
-- Si l'utilisateur ne donne pas de matière substantielle, laisse cette balise VIDE.
-- NE RÉSUME PAS ce qui a déjà été écrit. AVANCE.)
+Écris le PROCHAIN PARAGRAPHE du livre à la PREMIÈRE PERSONNE ("Je").
+Adopte le style demandé. TISSE avec le contexte.
+Si l'utilisateur ne donne pas de matière, laisse VIDE.
 </NARRATIVE>
 
 <METADATA>
-(JSON strict pour alimenter la base de données.
+JSON strict pour la base de données:
 {
-  "dates_chronologie": ["1985", "Été 1992"],
-  "lieux_cites": ["Chambéry", "Plage de Nice"],
-  "personnages_cites": ["Jean", "Maman", "Grand-mère", "Tata Marie"],
-  "tags_suggeres": ["Enfance", "Vacances"],
-  "emotion": "Nostalgie",
-  "periode_vie": "Enfance"
+  "dates_chronologie": ["1985", "12 Janvier 1990", "Noël 1985"],
+  "lieux_cites": ["Paris"],
+  "personnages_cites": ["Maman"],
+  "tags_suggeres": ["Enfance"],
+  "emotion": "Joie",
+  "periode_vie": "Enfance" (0-5, 6-12, 13-17, 18-30, 30+)
 }
-
-RÈGLES CRUCIALES POUR LES PERSONNAGES:
-1. Extrais TOUS les noms de personnes, même les prénoms simples ("Jean", "Marie", "Paul")
-2. Inclus les surnoms familiaux: "Maman", "Papa", "Tata", "Tonton", "Pépé", "Mémé"
-3. Inclus les relations même sans prénom: "mon père", "ma mère", "mes parents"
-4. Si "Jean" est mentionné comme personne, il DOIT apparaître dans la liste
-
-RÈGLES POUR LA PÉRIODE DE VIE (periode_vie):
-- Détecte la période de vie du narrateur AU MOMENT DU SOUVENIR
-- Valeurs possibles: "Petite enfance" (0-5 ans), "Enfance" (6-12 ans), "Adolescence" (13-17 ans), "Jeune adulte" (18-30 ans), "Adulte" (30+), "Non précisé"
-- Indices: "petite", "quand j'étais enfant", "mes parents m'ont...", "école primaire" → Enfance
-- Si l'auteur évoque des peurs enfantines, des jouets, Saint Nicolas → probablement Enfance ou Petite enfance
-
-RÈGLES POUR LES DATES:
-1. NE JAMAIS mettre l'année courante (2024, 2025) pour un souvenir du passé
-2. En cas de doute sur la date → laisse le tableau vide
-3. Seules les dates EXPLICITEMENT mentionnées par l'auteur doivent apparaître
-
-Si rien de nouveau, renvoie des tableaux vides.)
+Règles:
+- Extrais TOUS les noms/surnoms (Maman, Papa, Jean).
+- Dates: Cherche la précision (Jour/Mois/Année) ou les moments clés.
+- Évite l'année en cours pour les souvenirs passés.
 </METADATA>
 
 <SUGGESTION>
-(Si l'auteur mentionne un sujet, lieu, période ou personne qui mérite d'être exploré plus tard,
-suggère de le mettre dans le Coffre à Idées.
-Format : "titre court|description brève|tag"
-Exemple : "La boucherie du grand-père|Mes passages quotidiens après l'école|FAMILLE"
-Si rien à suggérer, laisse VIDE.)
+Suggestion pour le Coffre à Idées si pertinent.
+Format: "titre|description|tag"
+Sinon VIDE.
 </SUGGESTION>
 
-[RÈGLES DE STYLE]
-- Ton : Adapte-toi au paramètre fourni (ex: Authentique = oral, simple).
-- Fais sentir, ne dis pas (Show, don't tell).
-
-[RÈGLES DE LONGUEUR - CRITIQUE]
-La longueur du texte dans <NARRATIVE> DOIT RESPECTER ces limites STRICTES :
-- "Très Court" : Maximum 2-3 phrases (30-50 mots). Le texte ne doit JAMAIS dépasser l'entrée de l'auteur en longueur.
-- "Court" : Maximum 1 paragraphe court (50-80 mots). Concentre-toi sur l'essentiel.
-- "Moyen" : 1-2 paragraphes (100-150 mots). Équilibre entre détails et concision.
-- "Long" : 2-4 paragraphes (200-300 mots). Développe les sensations et le contexte.
+[RÈGLES DE STYLE & LONGUEUR]
+- Show, don't tell.
+- "Très Court": 2-3 phrases.
+- "Court": 1 paragraphe (50-80 mots).
+- "Moyen": 1-2 paragraphes.
+- "Long": 2-4 paragraphes.
 
 [RELANCE MAÏEUTIQUE]
-Pour finir, propose 3 angles de relance dans cette balise spéciale :
 <QUESTIONS>
 EMOTION|Question sur le ressenti ?
 ACTION|Question sur les faits ?
-SENSORIEL|Question sur les sens (odeur, lumière) ?
+SENSORIEL|Question sur les sens ?
 </QUESTIONS>
 `;
 
@@ -353,6 +323,14 @@ export const sendMessageToPlume = async (
     throw new Error("API Key is missing from environment variables.");
   }
 
+  // 0. Quota Check
+  if (userProfile?.id) {
+    const { allowed, limit, used } = await usageTrackingService.checkLimit(userProfile.id, 'ai_calls');
+    if (!allowed) {
+      throw new Error(`QUOTA_EXCEEDED:ai_calls:${limit}:${used}`);
+    }
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   let contextBlock = '';
@@ -397,6 +375,11 @@ export const sendMessageToPlume = async (
 
     if (!responseText) throw new Error("Empty response from Gemini");
 
+    // Track usage on success
+    if (userProfile?.id) {
+      await usageTrackingService.trackUsage(userProfile.id, 'ai_calls', 1);
+    }
+
     return parsePlumeResponse(responseText);
 
   } catch (error) {
@@ -409,9 +392,22 @@ export const synthesizeNarrative = async (
   historySegment: { role: string, content: string }[],
   tone: Tone,
   length: Length,
-  fidelity: Fidelity
+  fidelity: Fidelity,
+  userId?: string
 ): Promise<PlumeResponse> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("API Key is missing from environment variables.");
+  }
+
+  // 0. Quota Check
+  if (userId) {
+    const { allowed, limit, used } = await usageTrackingService.checkLimit(userId, 'ai_calls');
+    if (!allowed) {
+      throw new Error(`QUOTA_EXCEEDED:ai_calls:${limit}:${used}`);
+    }
+  }
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const synthesisPrompt = `
     TÂCHE: Réécriture littéraire.
@@ -441,6 +437,11 @@ export const synthesizeNarrative = async (
 
     const text = result.text || '';
     const narrative = text.match(/<NARRATIVE>([\s\S]*?)<\/NARRATIVE>/i)?.[1]?.trim() || text;
+
+    // Track usage on success
+    if (userId) {
+      await usageTrackingService.trackUsage(userId, 'ai_calls', 1);
+    }
 
     return {
       narrative,

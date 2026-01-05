@@ -8,11 +8,12 @@ import { IconCamera, IconSparkles, IconUserGroup, IconMapPin, IconX, IconCheck, 
 interface PhotoCatalystProps {
     userId: string;
     userContext?: { firstName?: string; birthDate?: string };
+    currentDraft?: string; // NEW: Context for smart tagging
     onComplete: (result: PhotoCatalystResult) => void;
     onClose: () => void;
 }
 
-const PhotoCatalyst: React.FC<PhotoCatalystProps> = ({ userId, userContext, onComplete, onClose }) => {
+const PhotoCatalyst: React.FC<PhotoCatalystProps> = ({ userId, userContext, currentDraft, onComplete, onClose }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string>('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -35,14 +36,32 @@ const PhotoCatalyst: React.FC<PhotoCatalystProps> = ({ userId, userContext, onCo
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Load available characters on mount
+    // Load available characters on mount AND from context
     useEffect(() => {
         const loadCharacters = async () => {
             const chars = await getAvailableCharacters(userId);
-            setAvailableCharacters(chars);
+            let combinedChars = [...chars];
+
+            // SMART TAGGING: Extract names from current draft
+            if (currentDraft) {
+                // Simple heuristic: Capitalized words that are not at start of sentence (rudimentary)
+                // Filter out common words if needed, but for now just unique capitalized words
+                // A better regex might be needed for full robustness, but this is a good start for "Mika", "Thomas"
+                const draftNames = currentDraft.match(/\b[A-Z][a-zÀ-ÿ]+\b/g) || [];
+                const uniqueDraftNames = Array.from(new Set(draftNames));
+
+                // Add unique draft names to suggestions if not already present
+                uniqueDraftNames.forEach(name => {
+                    if (!combinedChars.includes(name) && name.length > 2) {
+                        combinedChars.unshift(name); // Put draft suggestions at TOP
+                    }
+                });
+            }
+            // Dedup
+            setAvailableCharacters(Array.from(new Set(combinedChars)));
         };
         loadCharacters();
-    }, [userId]);
+    }, [userId, currentDraft]);
 
     const handleFileSelect = (file: File) => {
         if (!file.type.startsWith('image/')) {

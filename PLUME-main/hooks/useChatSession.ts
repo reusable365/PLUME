@@ -140,7 +140,13 @@ export const useChatSession = (
             const lastDividerIndex = currentMessages.map(m => m.isDivider).lastIndexOf(true);
             const relevantMessages = lastDividerIndex > -1 ? currentMessages.slice(lastDividerIndex + 1) : currentMessages;
 
-            const apiHistory = relevantMessages
+            // OPTIMIZATION: Sliding Window to reduce token usage
+            // We only send the last 20 messages to the AI.
+            // This prevents quadratic cost growth in long sessions.
+            const WINDOW_SIZE = 20;
+            const contextMessages = relevantMessages.slice(-WINDOW_SIZE);
+
+            const apiHistory = contextMessages
                 .filter(m => m.id !== 'welcome' && !m.isDivider)
                 .map(m => {
                     if (m.role === 'user') return { role: 'user', parts: [{ text: typeof m.content === 'string' ? m.content : (m.content as any).text || '' }] };

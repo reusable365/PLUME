@@ -7,6 +7,7 @@ import FAQSection from './FAQSection';
 import SupportSection from './SupportSection';
 import RecentActivityTicker from './RecentActivityTicker';
 import FeaturesSection from './FeaturesSection';
+import PricingSection from './PricingSection';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -73,6 +74,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
 
       {/* Examples Section */}
       <ExamplesSection />
+
+      {/* Pricing Section - PUBLIC VISIBILITY */}
+      <PricingSection onSignUp={() => openAuth('signup')} />
 
       {/* FAQ Section */}
       <FAQSection />
