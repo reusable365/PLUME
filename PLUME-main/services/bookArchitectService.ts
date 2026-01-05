@@ -84,7 +84,7 @@ INSTRUCTIONS:
 1. Analyse les dates et périodes mentionnées dans les souvenirs
 2. Identifie les grandes phases de vie (ex: Enfance 1950-1960, Adolescence 1960-1968, etc.)
 3. Crée des chapitres chronologiques cohérents
-4. Assigne chaque souvenir au chapitre approprié
+4. Assigne chaque souvenir au chapitre approprié. IMPORTANT : Utilise EXACTEMENT les "id" fournis dans la liste SOUVENIRS DISPONIBLES. Ne les invente pas.
 5. Propose un titre de livre évocateur
 6. Estime le nombre de pages par chapitre (1 souvenir ≈ 3 pages)
 
@@ -111,7 +111,7 @@ Réponds UNIQUEMENT avec le JSON.
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash-exp',
             contents: [{ parts: [{ text: prompt }] }],
             config: {
                 temperature: 0.7,
@@ -218,7 +218,7 @@ Réponds UNIQUEMENT avec le JSON.
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash-exp',
             contents: [{ parts: [{ text: prompt }] }],
             config: {
                 temperature: 0.8,
@@ -307,7 +307,8 @@ INSTRUCTIONS EXPERTES:
 2. Identifie les arcs narratifs, les moments charnières, les thèmes récurrents
 3. Détecte les connexions subtiles entre les souvenirs
 4. Crée une structure qui raconte une HISTOIRE, pas juste une chronologie
-5. Considère des techniques narratives avancées:
+5. Assigne les souvenirs aux chapitres. CRITIQUE : Les "memoryIds" doivent être EXACTEMENT ceux de la liste fournie. Si un ID est faux, le texte disparaîtra.
+6. Considère des techniques narratives avancées:
    - Commencer par un moment fort (in medias res)
    - Utiliser des flashbacks stratégiques
    - Créer des parallèles thématiques
@@ -338,7 +339,7 @@ Réponds UNIQUEMENT avec le JSON.
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash-exp',
             contents: [{ parts: [{ text: prompt }] }],
             config: {
                 temperature: 0.9,

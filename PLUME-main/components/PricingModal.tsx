@@ -66,8 +66,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, use
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto shadow-2xl animate-fade-in flex flex-col">
+        <div className="fixed inset-0 bg-black/60 z-[60] flex flex-col items-center justify-center p-4 backdrop-blur-sm overflow-hidden">
+            <div className="bg-white rounded-2xl w-full max-w-6xl max-h-[85vh] m-auto flex flex-col shadow-2xl animate-fade-in relative">
                 {/* Header */}
                 <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
                     <div>
@@ -104,7 +104,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, use
                 </div>
 
                 {/* Plans Grid */}
-                <div className="flex-1 p-8 bg-gray-50/50">
+                <div className="flex-1 p-8 bg-gray-50/50 overflow-y-auto custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         {plans.map((plan) => {
                             const price = getPrice(plan);

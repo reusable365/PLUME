@@ -85,13 +85,28 @@ export const subscriptionService = {
         }
 
         if (!data) {
-            // Create default free subscription
+            // Create default subscription (Check for VIP Invite)
+            const isVip = localStorage.getItem('plume_vip_access') === 'true';
+
+            const defaultPlan = isVip ? {
+                plan_id: 'family',
+                is_lifetime: true,
+                status: 'active'
+            } : {
+                plan_id: 'free',
+                status: 'active',
+                is_lifetime: false
+            };
+
+            if (isVip) {
+                logger.info("Applying VIP Beta Plan to new user");
+            }
+
             const { data: newSub, error: createError } = await supabase
                 .from('subscriptions')
                 .insert({
                     user_id: userId,
-                    plan_id: 'free',
-                    status: 'active'
+                    ...defaultPlan
                 })
                 .select()
                 .single();

@@ -760,13 +760,12 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                                         {allPhotos.length > 0 && (
                                             <div className={`mb-8 ${allPhotos.length === 1 ? '' : 'grid grid-cols-2 gap-4'}`}>
                                                 {allPhotos.map((photo, photoIdx) => (
-                                                    <div key={photoIdx} className="relative group overflow-hidden rounded-lg shadow-lg">
+                                                    <div key={photoIdx} className="relative group overflow-hidden rounded-lg shadow-sm hover:shadow-md transition-all bg-stone-50">
                                                         <img
                                                             src={photo}
                                                             alt={`${mem.title} - Photo ${photoIdx + 1}`}
-                                                            className={`w-full object-cover transition-transform duration-500 group-hover:scale-105 ${allPhotos.length === 1 ? 'h-80' : 'h-48'}`}
+                                                            className={`w-full h-auto max-h-[500px] object-contain mx-auto transition-transform duration-500`}
                                                         />
-                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -798,10 +797,12 @@ export const BookView: React.FC<BookViewProps> = ({ userId }) => {
                                             ) : (
                                                 <button
                                                     onClick={() => handlePlayAudio(mem.id, textContent)}
-                                                    className="flex items-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-full text-stone-600 transition-colors text-sm font-medium"
+                                                    className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-full shadow-lg hover:shadow-amber-200 transition-all transform hover:-translate-y-0.5"
                                                 >
-                                                    <Volume2 className="w-4 h-4" />
-                                                    Écouter ce souvenir
+                                                    <div className="bg-white/20 p-1.5 rounded-full">
+                                                        <Volume2 className="w-5 h-5" />
+                                                    </div>
+                                                    <span className="font-bold text-sm">Écouter le récit</span>
                                                 </button>
                                             )}
                                         </div>

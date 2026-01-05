@@ -26,7 +26,7 @@ export const QuotaIndicator: React.FC<QuotaIndicatorProps> = ({ userId, metric, 
         );
     }
 
-    const percentage = Math.min((usage / limit) * 100, 100);
+    const percentage = limit > 0 ? Math.min((usage / limit) * 100, 100) : 0;
     const isWarning = percentage > 80;
     const isCritical = percentage >= 100;
 

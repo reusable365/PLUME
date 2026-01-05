@@ -140,13 +140,22 @@ export const TOUR_STEPS: TourStep[] = [
         order: 40,
     },
     {
+        id: 'livre-audio',
+        target: 'body',
+        title: '🎧 Le Livre Audio (Nouveau !)',
+        content: 'Écoutez vos souvenirs narrés par une voix IA ultra-réaliste. Cliquez sur l\'icône de lecture dans chaque chapitre pour donner vie à votre histoire.',
+        placement: 'center',
+        section: 'livre',
+        order: 41,
+    },
+    {
         id: 'livre-export',
         target: 'body',
         title: '📄 Exporter en PDF',
         content: 'Une fois satisfait, exportez votre livre en PDF. Vous obtiendrez un fichier magnifiquement mis en page, prêt à imprimer ou offrir !',
         placement: 'center',
         section: 'livre',
-        order: 41,
+        order: 42,
     },
 
     // === RÉPERTOIRE ===

@@ -6,6 +6,7 @@ import { IconArchive, IconPlus, IconTag, IconTrash, IconCheck, IconX, IconChevro
 interface IdeaChestProps {
     ideas: Idea[];
     draftContent: string;
+    draftPhotos?: string[];
     onAddIdea: (title: string, content: string, tag: string) => Promise<void>;
     onDeleteIdea: (id: string) => Promise<void>;
     onIdeaClick: (idea: Idea) => void;
@@ -16,6 +17,7 @@ interface IdeaChestProps {
 const IdeaChest: React.FC<IdeaChestProps> = ({
     ideas,
     draftContent,
+    draftPhotos = [],
     onAddIdea,
     onDeleteIdea,
     onIdeaClick,
@@ -93,7 +95,18 @@ const IdeaChest: React.FC<IdeaChestProps> = ({
 
                 {draftOpen && (
                     <div className="flex-1 flex flex-col p-4 bg-ink-50 animate-fade-in min-h-0 border-t border-ink-100">
-                        <div className="relative flex-1">
+                        <div className="relative flex-1 flex flex-col gap-4">
+                            {/* Draft Photos Display */}
+                            {draftPhotos.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto pb-2 flex-shrink-0">
+                                    {draftPhotos.map((photoUrl, index) => (
+                                        <div key={index} className="relative w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden border border-ink-200 shadow-sm group">
+                                            <img src={photoUrl} alt="Souvenir" className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
                             <textarea
                                 value={draftContent}
                                 onChange={(e) => onUpdateDraft(e.target.value)}

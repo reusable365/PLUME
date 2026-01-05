@@ -623,20 +623,21 @@ export const generateSouvenirTitle = async (
   if (metadata?.locations?.length > 0) contextHints += ` Lieux: ${metadata.locations.join(', ')}.`;
   if (metadata?.tags?.length > 0) contextHints += ` Thèmes: ${metadata.tags.join(', ')}.`;
 
-  const prompt = `Tu dois générer UN SEUL titre court pour un souvenir autobiographique.
+  const prompt = `
+    Tu es un éditeur littéraire de génie. Trouve un titre ACCROCHEUR et ÉVOCATEUR pour ce souvenir.
+    
+    RÈGLES D'OR:
+    1. MAX 5 MOTS.
+    2. Pas de "Souvenir de..." ou "Le jour où...".
+    3. Cherche la poésie, l'ironie ou l'émotion centrale.
+    4. Réponds UNIQUEMENT avec le titre.
 
-RÈGLES STRICTES:
-- Maximum 6 mots
-- Style poétique/évocateur
-- NE PAS dire "Voici", "Je propose", ni aucune introduction
-- NE PAS donner plusieurs options
-- Réponds UNIQUEMENT avec le titre, rien d'autre
-
-Contexte du souvenir:
-"${narrative.substring(0, 400)}..."
-${contextHints}
-
-TITRE (6 mots max):`;
+    Contexte: ${contextHints}
+    
+    Texte:
+    "${narrative.substring(0, 500)}..."
+    
+    TITRE:`;
 
   try {
     const result = await ai.models.generateContent({
@@ -644,43 +645,18 @@ TITRE (6 mots max):`;
       contents: [{ parts: [{ text: prompt }] }]
     });
 
-    let title = result.text?.trim() || 'Nouveau Souvenir';
+    let title = result.text?.trim() || '';
 
-    // Aggressive cleaning of AI preamble
-    const preamblePatterns = [
-      /^voici[^:]*:/i,
-      /^je propose[^:]*:/i,
-      /^suggestion[^:]*:/i,
-      /^titre[^:]*:/i,
-      /^option[^:]*:/i,
-      /^un titre[^:]*:/i,
-      /^\d+\.\s*/,  // Remove numbered lists
-      /^[-•]\s*/,   // Remove bullet points
-      /^["']/,      // Remove leading quotes
-      /["']$/,      // Remove trailing quotes
-    ];
+    // Aggressive cleaning
+    title = title.replace(/^["']|["']$/g, '');
+    title = title.replace(/^titre\s*:\s*/i, '');
 
-    preamblePatterns.forEach(pattern => {
-      title = title.replace(pattern, '');
-    });
+    if (!title || title.length < 3) return 'Souvenir Retrouvé';
 
-    // If still contains multiple lines, take only the first
-    if (title.includes('\n')) {
-      title = title.split('\n')[0];
-    }
-
-    // Clean quotes and trim
-    title = title.replace(/[\"']/g, '').trim();
-
-    // If too long, truncate smartly
-    if (title.length > 50) {
-      title = title.substring(0, 50).split(' ').slice(0, -1).join(' ') + '...';
-    }
-
-    return title || 'Nouveau Souvenir';
+    return title;
   } catch (error) {
     logger.error('Error generating title:', error);
-    return 'Nouveau Souvenir';
+    return 'Chapitre de Vie';
   }
 };
 

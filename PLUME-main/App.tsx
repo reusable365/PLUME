@@ -167,6 +167,19 @@ const App: React.FC = () => {
         document.body.className = `theme-${theme}`;
     }, [theme]);
 
+    // Check for Beta Invite Link
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const ref = params.get('ref');
+        if (ref === 'vip_beta') {
+            localStorage.setItem('plume_vip_access', 'true');
+            // Optional: Clean URL
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({ path: newUrl }, '', newUrl);
+            logger.info("VIP Access granted via invite link");
+        }
+    }, []);
+
     useEffect(() => {
         soundManager.setEnabled(soundEnabled);
     }, [soundEnabled]);
@@ -1606,6 +1619,26 @@ Sois bref et professionnel.`;
                 setIsLoading(false);
             }
 
+            // 3. Reset Aggregated Data (Fix Tag Pollution)
+            // Load metadata from the chapter if available, or start fresh
+            setState(prev => ({
+                ...prev,
+                aggregatedData: {
+                    dates: new Set(data.metadata?.dates || []),
+                    locations: new Set(data.metadata?.locations || []),
+                    characters: new Set(data.metadata?.characters || []),
+                    tags: new Set(data.metadata?.tags || [])
+                }
+            }));
+
+            // 4. Restore Photos
+            // Check if there are photos in metadata or image_url
+            const userPhotos = data.metadata?.photos || [];
+            if (data.image_url) userPhotos.unshift(data.image_url);
+            // Remove duplicates
+            const uniquePhotos = [...new Set(userPhotos)];
+            setDraftPhotos(uniquePhotos as string[]);
+
         } else {
             logger.error("Error loading chapter:", error);
             showToast("Erreur lors du chargement du souvenir", 'error');
@@ -1850,10 +1883,31 @@ Sois bref et professionnel.`;
         setShowPhotoCatalyst(false);
         // Automatically send the generated prompt to start the conversation
         // Display a clean message to the user, send the full prompt to AI
-        const displayMessage = `Je souhaite explorer ce souvenir sous l'angle : ${result.selectedAngle === 'emotion' ? 'ÉMOTION' : result.selectedAngle === 'action' ? 'ACTION' : 'SENSORIEL'}.`;
+        const specificQuestion = result.photo.analysis?.narrativeAngles?.[result.selectedAngle];
+        const displayMessage = specificQuestion
+            ? `Je souhaite explorer ce souvenir. ${specificQuestion}`
+            : `Je souhaite explorer ce souvenir sous l'angle : ${result.selectedAngle === 'emotion' ? 'ÉMOTION' : result.selectedAngle === 'action' ? 'ACTION' : 'SENSORIEL'}.`;
+
         triggerSend(displayMessage, result.photo.url, result.generatedPrompt);
+
+        // UPDATE STATE WITH PHOTO METADATA (Date & Tags)
+        setState(prev => {
+            const newDates = new Set(prev.aggregatedData.dates);
+            if (result.photo.analysis?.detectedPeriod) {
+                newDates.add(result.photo.analysis.detectedPeriod);
+            }
+            // We could also add locations if reliable
+            return {
+                ...prev,
+                aggregatedData: {
+                    ...prev.aggregatedData,
+                    dates: newDates
+                }
+            };
+        });
+
         setDraftPhotos(prev => [...prev, result.photo.url]);
-        showToast("Photo analysée ! Création du souvenir en cours...", 'success');
+        showToast("Photo analysée ! Période détectée ajoutée.", 'success');
     };
 
     const handleProfileComplete = (updatedUser: User) => { setUserProfile(updatedUser); setShowProfileModal(false); };

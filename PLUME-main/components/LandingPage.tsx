@@ -41,8 +41,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
           </div>
 
           <h1 className="font-serif text-5xl md:text-7xl font-bold mb-6 tracking-tight leading-tight">
-            Vos souvenirs méritent <br />
-            <span className="text-amber-400">l'éternité</span>
+            Écrivez et <span className="text-amber-400">Écoutez</span> <br />
+            Le Livre de votre Vie
           </h1>
 
           <p className="text-xl md:text-2xl text-amber-50 font-serif italic max-w-3xl mb-12 leading-relaxed opacity-90">
